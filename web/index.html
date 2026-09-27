@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f2eb">
+  <meta name="description" content="A quiet workspace for powerful local chess analysis.">
+  <title>Knightfall — Your chess analysis desk</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Knightfall home"><span class="brand-mark" aria-hidden="true">♞</span><span>knightfall<span class="brand-dot">.</span></span></a>
+    <div class="header-note"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Connecting to your engine</span></div>
+  </header>
+
+  <main>
+    <div class="page-heading"><div><p class="eyebrow">A BETTER MOVE STARTS HERE</p><h1>Your analysis desk.</h1><p class="page-description">You make a move. Your engine finds the reply.</p></div><button id="new-game" class="button button-outline"><span aria-hidden="true">↻</span> New game</button></div>
+    <div id="message" class="message" role="status" hidden></div>
+
+    <div class="workspace">
+      <section class="board-panel" aria-label="Chess board and game controls">
+        <div class="player-row"><div class="player-info"><span class="player-icon" id="top-player-icon" aria-hidden="true">♚</span><div><strong id="top-player-name">Your engine</strong><span id="top-player-detail">Black · Stockfish</span></div></div><span id="top-player-badge" class="player-badge">ENGINE</span></div>
+        <div class="board-frame"><div class="evaluation-rail" id="evaluation-rail" role="img" aria-label="Position evaluation is equal"><div id="evaluation-fill"></div><span id="evaluation-marker"></span></div><div id="board" class="board" role="group" aria-label="Interactive chess board" aria-busy="true"></div></div>
+        <div class="player-row bottom-player"><div class="player-info"><span class="player-icon light-icon" id="bottom-player-icon" aria-hidden="true">♔</span><div><strong id="bottom-player-name">Your opponent</strong><span id="bottom-player-detail">White · Enter their moves</span></div></div><span id="turn-badge" class="turn-badge">Loading position</span></div>
+        <form id="move-form" class="move-form"><label class="sr-only" for="move-input">Enter a move in SAN or UCI notation</label><span class="input-prefix" aria-hidden="true">↗</span><input id="move-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter a move, e.g. e4 or e2e4" maxlength="32"><button class="button button-primary" id="submit-move" type="submit">Make move <span aria-hidden="true">→</span></button></form>
+        <div class="board-toolbar"><div><button class="text-button" id="undo" title="Take back the last turn"><span aria-hidden="true">↶</span> Undo</button><button class="text-button" id="flip"><span aria-hidden="true">⇅</span> Flip board</button></div><div><button class="text-button" id="import"><span aria-hidden="true">↓</span> Import</button><button class="text-button" id="copy-fen">Copy FEN</button><button class="text-button" id="export-pgn">Export PGN</button></div></div>
+        <div class="board-footnote"><span class="small-diamond" aria-hidden="true">◇</span><p>Click a piece, then its destination. Analysis runs on your computer.</p></div>
+      </section>
+
+      <aside class="sidebar" aria-label="Engine analysis and settings">
+        <section class="analysis-card card" aria-labelledby="analysis-title">
+          <div class="card-heading"><h2 id="analysis-title">The engine room</h2><span class="engine-tag" id="engine-tag">STOCKFISH</span></div>
+          <div class="analysis-status"><span class="status-dot" id="thinking-dot"></span><span id="analysis-status" role="status" aria-live="polite">Getting ready</span><span id="elapsed" hidden>0.0s</span></div>
+          <div class="evaluation"><div><p class="label">WHITE’S EVALUATION</p><div class="evaluation-value" id="score">—</div></div><div class="best-move-block"><p class="label">BEST MOVE</p><div id="best-move" class="best-move">—</div></div></div>
+          <p id="analysis-caption" class="analysis-caption">Play the first move to start the conversation.</p>
+          <div class="engine-stats"><div><span>Depth</span><strong id="depth">—</strong></div><div><span>Positions</span><strong id="nodes">—</strong></div><div><span>Time</span><strong id="analysis-time">—</strong></div></div>
+          <div id="variations" class="variations" hidden></div>
+          <div class="analysis-actions"><button class="button button-primary" id="analyze">Analyze position <span aria-hidden="true">↗</span></button><button class="button button-outline" id="stop" hidden>Stop analysis</button><button class="button button-outline" id="play-best" hidden>Play best move</button></div>
+        </section>
+
+        <section class="settings-card card" aria-labelledby="settings-title"><div class="card-heading"><h2 id="settings-title">Make it yours</h2></div>
+          <div class="setting-row"><span class="setting-label" id="solver-color-label">Engine plays</span><div class="segmented" role="group" aria-labelledby="solver-color-label"><button id="solver-white" aria-pressed="false"><span aria-hidden="true">♔</span> White</button><button id="solver-black" class="active" aria-pressed="true"><span aria-hidden="true">♚</span> Black</button></div></div>
+          <label class="toggle-row" for="auto-reply"><span><strong>Automatic replies</strong><small>The engine plays its best move for you</small></span><span class="switch"><input type="checkbox" id="auto-reply" checked><span class="switch-track"></span></span></label>
+          <div class="time-setting"><div class="setting-row"><label class="setting-label" id="time-label">Thinking time</label><span id="time-description" class="subtle">5 sec / move</span></div><div class="time-options" role="group" aria-labelledby="time-label"><button data-seconds="1" aria-pressed="false">1s</button><button data-seconds="5" class="active" aria-pressed="true">5s</button><button data-seconds="15" aria-pressed="false">15s</button><button data-seconds="30" aria-pressed="false">30s</button><button data-seconds="60" aria-pressed="false">1m</button><button data-seconds="120" aria-pressed="false">2m</button></div><p class="setting-help">Give complex positions a little more room.</p></div>
+          <details class="advanced"><summary>Advanced engine settings <span aria-hidden="true">+</span></summary><div class="advanced-grid"><label>CPU threads<input id="threads" type="number" min="1" max="16" value="1"></label><label>Hash memory (MB)<input id="hash" type="number" min="16" max="2048" value="128"></label><label>Candidate lines<select id="multipv"><option value="1">1 · Strongest search</option><option value="2">2 lines</option><option value="3">3 lines</option></select></label></div><p class="setting-help">More threads use more CPU. One candidate line focuses all search on finding the best move.</p></details>
+        </section>
+
+        <section class="history-card card" aria-labelledby="history-title"><div class="card-heading"><h2 id="history-title">The game so far</h2><span class="subtle" id="move-count">0 moves</span></div><div class="history-head" aria-hidden="true"><span>#</span><span>White</span><span>Black</span></div><div id="history" class="history" aria-label="Move history"><p class="history-empty">Every good game starts with a first move.</p></div><div id="game-result" class="game-result" hidden></div></section>
+      </aside>
+    </div>
+    <footer><span>KNIGHTFALL <span class="footer-divider">/</span> FIND YOUR NEXT MOVE.</span><p>Local analysis. Powered by Stockfish.</p></footer>
+  </main>
+
+  <dialog id="import-dialog"><form id="import-form"><div class="dialog-heading"><h2>Start from a position</h2><button type="button" class="icon-button" id="close-import" aria-label="Close import dialog">×</button></div><p class="dialog-description">Paste a FEN position or a PGN game to continue from there.</p><div class="segmented import-type" role="group" aria-label="Import format"><button type="button" data-import-type="fen" class="active" aria-pressed="true">FEN position</button><button type="button" data-import-type="pgn" aria-pressed="false">PGN game</button></div><label class="sr-only" for="import-text">FEN or PGN text</label><textarea id="import-text" rows="7" spellcheck="false" placeholder="Paste your FEN here…" required></textarea><p id="import-error" class="inline-error" role="alert" hidden></p><button class="button button-primary" type="submit" id="submit-import">Load position <span aria-hidden="true">→</span></button></form></dialog>
+  <dialog id="promotion-dialog" aria-labelledby="promotion-title"><div class="dialog-heading"><h2 id="promotion-title">Choose your promotion</h2><button type="button" class="icon-button" id="close-promotion" aria-label="Cancel promotion">×</button></div><p class="dialog-description">Your pawn has earned an upgrade.</p><div id="promotion-options" class="promotion-options"></div></dialog>
+  <noscript><div class="noscript">Knightfall needs JavaScript enabled to display the board and run analysis.</div></noscript>
+</body>
+</html>
