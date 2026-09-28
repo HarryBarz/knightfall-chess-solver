@@ -1,0 +1,37 @@
+{
+  "packages": {
+    "@scoriiu/fenshot": "0.1.4",
+    "onnxruntime-web": "1.26.0",
+    "esbuild": "0.25.12"
+  },
+  "files": {
+    "recognizer.mjs": {
+      "bytes": 58692,
+      "sha256": "eacd835ba698f33f4244118f33f731a7432d53a058655a9576ef8ce9e33cada3"
+    },
+    "chess-tiles-v2.onnx": {
+      "bytes": 1289483,
+      "sha256": "883f6a8e639e6d6b6399b3fda0508ad772e3c6f9cefa2e678a13f27b9fa6248d"
+    },
+    "FENSHOT-LICENSE.txt": {
+      "bytes": 1091,
+      "sha256": "8685a531431b51328047797bc4b3574db3039a8abffb86a8b4d46b55dd5f6360"
+    },
+    "ort/ort-wasm-simd-threaded.mjs": {
+      "bytes": 24180,
+      "sha256": "2de262ca1fe2d6e0ef9236bf77632fa01de232ce7b6a33071c37637ee53f4669"
+    },
+    "ort/ort-wasm-simd-threaded.wasm": {
+      "bytes": 13022405,
+      "sha256": "040d52ce5066707a10d45cb9500c35e70a9c2fb33c4fb63428da9ae45b956b97"
+    },
+    "ONNXRUNTIME-LICENSE.txt": {
+      "bytes": 1073,
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+    },
+    "ONNXRUNTIME-ThirdPartyNotices.txt": {
+      "bytes": 325054,
+      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    }
+  }
+}

@@ -4,3 +4,4 @@ __pycache__/
 engines/
 artifacts/
 .DS_Store
+node_modules/

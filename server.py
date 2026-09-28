@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Local chess board and full-strength Stockfish analysis server."""
+"""Local chess board with configurable Stockfish practice strength."""
 
 from __future__ import annotations
 
@@ -30,6 +30,9 @@ except ImportError as exc:
     raise SystemExit(
         "Missing Python dependency. Run: python3 -m pip install -r requirements.txt"
     ) from exc
+
+from coach import CoachError, ExplainService
+from practice import PracticePlan
 
 
 ROOT = Path(__file__).resolve().parent
@@ -276,7 +279,11 @@ class StockfishService:
                 analysis.stop()
         return {"ok": True, "requestId": ident, "stopped": active}
 
-    def _empty_result(self, board: chess.Board, ident: str, cancelled: bool = False) -> dict:
+    def _empty_result(
+        self, board: chess.Board, ident: str, cancelled: bool = False,
+        *, strength: int = 100, forgiving: bool = False, skill_level: int = 20,
+        practice: dict | None = None,
+    ) -> dict:
         return {
             "requestId": ident,
             "positionFen": board.fen(),
@@ -285,6 +292,8 @@ class StockfishService:
             "score": {"cp": None, "mate": None},
             "lines": [], "depth": 0, "nodes": 0, "nps": 0, "timeMs": 0,
             "engine": self._engine_name, "cancelled": cancelled,
+            "strength": strength, "forgiving": forgiving, "skillLevel": skill_level,
+            "practice": practice,
         }
 
     def analyze(self, data: dict) -> dict:
@@ -294,6 +303,24 @@ class StockfishService:
         threads = bounded_number(data, "threads", DEFAULT_THREADS, 1, MAX_THREADS, integer=True)
         hash_mb = bounded_number(data, "hashMb", DEFAULT_HASH_MB, 16, MAX_HASH_MB, integer=True)
         multi_pv = bounded_number(data, "multiPv", 1, 1, 3, integer=True)
+        strength = bounded_number(data, "strength", 100, 10, 100, integer=True)
+        forgiving = data.get("forgiving", False)
+        if not isinstance(forgiving, bool):
+            raise APIError("forgiving must be true or false.")
+        if strength == 100 and forgiving:
+            raise APIError("Choose a strength below 100 to enable forgiving practice.")
+        try:
+            practice = PracticePlan.from_request(data, board)
+        except ValueError as exc:
+            raise APIError(str(exc)) from exc
+        skill_level = (strength - 10) * 20 // 90
+        if forgiving:
+            skill_level = min(skill_level, 4)
+        settings = {"strength": strength, "forgiving": forgiving, "skill_level": skill_level,
+                    "practice": practice.payload()}
+        search_pv = max(multi_pv, 4) if skill_level < 20 else multi_pv
+        if practice.eligible:
+            search_pv = max(search_pv, 8)
         if not self._analysis_lock.acquire(blocking=False):
             raise APIError("Stockfish is already thinking. Stop the current search before starting another.", 409)
         started = time.monotonic()
@@ -301,20 +328,30 @@ class StockfishService:
             with self._state_lock:
                 self._active_id = ident
                 if ident in self._cancelled:
-                    return self._empty_result(board, ident, cancelled=True)
+                    return self._empty_result(board, ident, cancelled=True, **settings)
             if board.is_game_over(claim_draw=False):
-                return self._empty_result(board, ident)
+                return self._empty_result(board, ident, **settings)
             engine = self._get_engine()
+            if skill_level < 20 or practice.eligible:
+                if "Skill Level" not in engine.options or engine.options["Skill Level"].type != "spin":
+                    raise APIError("This engine does not support the requested practice options. Use Stockfish.", 503)
+                try:
+                    engine.options["Skill Level"].parse(skill_level)
+                    if "MultiPV" not in engine.options:
+                        raise chess.engine.EngineError("MultiPV is unavailable")
+                    engine.options["MultiPV"].parse(search_pv)
+                except chess.engine.EngineError as exc:
+                    raise APIError(f"This engine does not support the requested practice strength: {exc}. Use Stockfish.", 503) from exc
             options = {"Threads": threads, "Hash": hash_mb}
             if "UCI_LimitStrength" in engine.options:
                 options["UCI_LimitStrength"] = False
             if "Skill Level" in engine.options:
-                options["Skill Level"] = 20
+                options["Skill Level"] = skill_level
             engine.configure(options)
             with self._state_lock:
                 if ident in self._cancelled:
-                    return self._empty_result(board, ident, cancelled=True)
-            with engine.analysis(board, chess.engine.Limit(time=seconds), multipv=multi_pv) as analysis:
+                    return self._empty_result(board, ident, cancelled=True, **settings)
+            with engine.analysis(board, chess.engine.Limit(time=seconds), multipv=search_pv) as analysis:
                 with self._state_lock:
                     self._analysis = analysis
                     already_cancelled = ident in self._cancelled
@@ -324,6 +361,13 @@ class StockfishService:
                     pass
                 best = analysis.wait()
                 infos = analysis.multipv
+            best_move = best.move if best.move in board.legal_moves else None
+            with self._state_lock:
+                cancelled = ident in self._cancelled
+            chosen = None if cancelled else practice.choose(board, infos, best_move)
+            if chosen is not None:
+                best_move = chosen["pv"][0]
+                settings["practice"] = practice.payload(chosen)
             lines = []
             for info in infos:
                 pv = info.get("pv", [])
@@ -339,16 +383,23 @@ class StockfishService:
                         "move": pv[0].uci(), "san": san_pv[0], "pv": san_pv,
                         "score": white_score(info.get("score")), "depth": info.get("depth", 0),
                     })
-            main_info = infos[0] if infos else {}
-            best_move = best.move if best.move in board.legal_moves else None
+            # Skill Level can choose a move outside the engine's highest-scoring PV.
+            selected_info = next((info for info in infos if best_move and info.get("pv") and info["pv"][0] == best_move), {})
+            selected_line = next((line for line in lines if best_move and line["move"] == best_move.uci()), None)
+            if selected_line is not None:
+                lines.remove(selected_line)
+                lines.insert(0, selected_line)
+            main_info = selected_info or (infos[0] if infos else {})
             with self._state_lock:
                 cancelled = ident in self._cancelled
-            result = self._empty_result(board, ident, cancelled)
+            if cancelled:
+                settings["practice"] = practice.payload()
+            result = self._empty_result(board, ident, cancelled, **settings)
             result.update({
                 "bestMove": best_move.uci() if best_move else None,
                 "bestSan": board.san(best_move) if best_move else None,
-                "score": white_score(main_info.get("score")),
-                "lines": lines, "depth": main_info.get("depth", 0),
+                "score": white_score(selected_info.get("score")),
+                "lines": lines[:multi_pv], "depth": main_info.get("depth", 0),
                 "nodes": main_info.get("nodes", 0), "nps": main_info.get("nps", 0),
                 "timeMs": round((time.monotonic() - started) * 1000),
             })
@@ -370,7 +421,9 @@ class StockfishService:
 
 
 ENGINE = StockfishService()
+COACH = ExplainService(StockfishService.engine_path)
 atexit.register(ENGINE.close)
+atexit.register(COACH.close)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -383,7 +436,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'")
         self.end_headers()
         with suppress(BrokenPipeError, ConnectionResetError):
             self.wfile.write(body)
@@ -484,11 +537,25 @@ class Handler(BaseHTTPRequestHandler):
                 result = ENGINE.analyze(data)
             elif path == "/api/stop":
                 result = ENGINE.stop(request_id(data))
+            elif path == "/api/explain":
+                board = board_from_request(data)
+                ident = request_id(data)
+                strength = bounded_number(data, "strength", 70, 10, 100, integer=True)
+                forgiving = data.get("forgiving", False)
+                if not isinstance(forgiving, bool):
+                    raise APIError("forgiving must be true or false.")
+                if strength == 100 and forgiving:
+                    raise APIError("Choose a strength below 100 to enable forgiving practice.")
+                result = COACH.explain(board, ident, strength, forgiving)
+            elif path == "/api/explain/stop":
+                result = COACH.stop(request_id(data))
             else:
                 raise APIError("Unknown API endpoint.", 404)
             self._json(200, result)
         except APIError as exc:
             self._json(exc.status, {"error": str(exc)})
+        except CoachError as exc:
+            self._json(503, {"error": str(exc)})
         except (BrokenPipeError, ConnectionResetError):
             pass
         except Exception as exc:
@@ -524,6 +591,7 @@ def main():
     finally:
         server.server_close()
         ENGINE.close()
+        COACH.close()
 
 
 if __name__ == "__main__":

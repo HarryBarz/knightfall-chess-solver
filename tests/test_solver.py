@@ -110,6 +110,25 @@ class SolverAPITest(unittest.TestCase):
         payload.update(options)
         return self.post("/api/analyze", payload, timeout=40)
 
+    def explain(self, moves=None, initial_fen=None, **options):
+        payload = {"moves": moves or [], "requestId": str(uuid.uuid4()), "strength": 70}
+        if initial_fen is not None:
+            payload["initialFen"] = initial_fen
+        payload.update(options)
+        return self.post("/api/explain", payload, timeout=15)
+
+    def assert_explanation_line_legal(self, line, before):
+        self.assertTrue(line["uciPv"], line)
+        self.assertEqual(len(line["pv"]), len(line["uciPv"]))
+        replay = before.copy()
+        for uci, san in zip(line["uciPv"], line["pv"]):
+            move = chess.Move.from_uci(uci)
+            self.assertIn(move, replay.legal_moves, line)
+            self.assertEqual(replay.san(move), san)
+            replay.push(move)
+        self.assertEqual(set(line["score"]), {"cp", "mate"})
+        self.assertTrue(line["score"]["cp"] is not None or line["score"]["mate"] is not None)
+
     def assert_position_matches(self, result, board):
         self.assertEqual(result["fen"], board.fen())
         self.assertEqual(result["turn"], "white" if board.turn else "black")
@@ -136,6 +155,42 @@ class SolverAPITest(unittest.TestCase):
         self.assertEqual(position["history"], [])
         self.assertIsNone(position["outcome"])
         self.assertIsNone(position["claimableDraw"])
+
+    def test_local_screenshot_runtime_csp(self):
+        with urllib.request.urlopen(self.base_url + "/", timeout=5) as response:
+            directives = {
+                parts[0]: parts[1:]
+                for directive in response.headers["Content-Security-Policy"].split(";")
+                if (parts := directive.split())
+            }
+            self.assertEqual(response.status, 200)
+            self.assertEqual(set(directives["script-src"]), {"'self'", "'wasm-unsafe-eval'"})
+            self.assertEqual(directives["connect-src"], ["'self'"])
+            self.assertIn("blob:", directives["img-src"])
+            self.assertNotIn("'unsafe-eval'", directives["script-src"])
+
+    def test_reviewed_screenshot_position_metadata(self):
+        placement = "2kr1bnr/ppp1pppp/2n5/q7/3P2b1/2N2N2/PPP1BPPP/R1BQ1RK1"
+        for turn in ["w", "b"]:
+            with self.subTest(turn=turn):
+                fen = f"{placement} {turn} - - 3 8"
+                imported = self.post("/api/import", {"fen": fen})
+                self.assert_position_matches(imported, chess.Board(fen))
+                self.assertEqual(imported["initialFen"], fen)
+                self.assertEqual(imported["moves"], [])
+                self.assertEqual(imported["history"], [])
+                self.assertEqual(len(imported["pieces"]), 30)
+                self.assertEqual(chess.Board(imported["fen"]).castling_rights, 0)
+                self.assertIsNone(chess.Board(imported["fen"]).ep_square)
+        for fen in [
+            f"{placement} w K - 3 8",
+            f"{placement} w - e6 3 8",
+            "2kr1bnr/ppp1pppp/2n5/q7/3P2b1/2N2N2/PPP1BPPP/R1BQ1R2 w - - 3 8",
+        ]:
+            with self.subTest(invalid_review=fen):
+                status, error = self.request("/api/import", {"fen": fen})
+                self.assertEqual(status, 400)
+                self.assertIn("error", error)
 
     def test_legal_san_and_uci_moves_and_history(self):
         result = self.post("/api/move", {"moves": [], "move": "e4"})
@@ -288,10 +343,98 @@ class SolverAPITest(unittest.TestCase):
             for san in line["pv"]:
                 pv_board.push_san(san)
 
+    def test_practice_strength_produces_legal_replies_for_both_colors(self):
+        for strength in [10, 70, 90]:
+            for board in [chess.Board(), chess.Board().mirror()]:
+                with self.subTest(strength=strength, turn=board.turn):
+                    result = self.analyze(board.fen(), strength=strength)
+                    move = chess.Move.from_uci(result["bestMove"])
+                    self.assertIn(move, board.legal_moves)
+                    self.assertEqual(result["bestSan"], board.san(move))
+                    self.assertEqual(result["strength"], strength)
+                    self.assertFalse(result["forgiving"])
+                    self.assertEqual(result["skillLevel"], (strength - 10) * 20 // 90)
+                    selected = next((line for line in result["lines"] if line["move"] == result["bestMove"]), None)
+                    if selected is not None:
+                        self.assertEqual(result["score"], selected["score"])
+                    else:
+                        self.assertEqual(result["score"], {"cp": None, "mate": None})
+
+    def test_full_strength_analysis_recovers_after_forgiving_practice(self):
+        practice = self.analyze(strength=70, forgiving=True)
+        self.assertEqual(practice["strength"], 70)
+        self.assertTrue(practice["forgiving"])
+        self.assertEqual(practice["skillLevel"], 4)
+        self.assertIn(chess.Move.from_uci(practice["bestMove"]), chess.Board().legal_moves)
+        for board in [chess.Board("7k/8/5KQ1/8/8/8/8/8 w - - 0 1"), chess.Board("7k/8/5KQ1/8/8/8/8/8 w - - 0 1").mirror()]:
+            with self.subTest(turn=board.turn):
+                result = self.analyze(board.fen(), strength=100)
+                self.assertEqual(result["strength"], 100)
+                self.assertFalse(result["forgiving"])
+                self.assertEqual(result["skillLevel"], 20)
+                board.push_uci(result["bestMove"])
+                self.assertTrue(board.is_checkmate(), result)
+
+    def test_practice_settings_reject_invalid_values(self):
+        cases = [
+            {"strength": 9}, {"strength": 101}, {"strength": 70.5},
+            {"strength": True}, {"strength": "70"}, {"strength": None},
+            {"forgiving": "true"}, {"forgiving": 1}, {"forgiving": None},
+            {"strength": 100, "forgiving": True},
+        ]
+        for settings in cases:
+            with self.subTest(settings=settings):
+                status, body = self.request("/api/analyze", {
+                    "moves": [], "seconds": 1, "threads": 1, "hashMb": 16,
+                    "requestId": str(uuid.uuid4()), **settings,
+                })
+                self.assertEqual(status, 400, body)
+                self.assertTrue(body["error"])
+
+    def test_extra_practice_opportunity_real_engine_and_committed_budget(self):
+        original = chess.Board()
+        for san in "d4 c6 a3 d5 h3 Nf6 Nf3 Ne4 Nc3 Nd7 e3 f5 Bd3 e5 dxe5 g6 Bxe4".split():
+            original.push_san(san)
+        mirrored = original.root().mirror()
+        for move in original.move_stack:
+            mirrored.push(chess.Move(chess.square_mirror(move.from_square), chess.square_mirror(move.to_square)))
+        for board in [original, mirrored]:
+            with self.subTest(turn=board.turn):
+                moves = [move.uci() for move in board.move_stack]
+                options = {"target": 1, "startPly": 0, "events": []}
+                result = self.analyze(board.root().fen(), moves, strength=100, practice=options)
+                plan = result["practice"]
+                self.assertTrue(plan["deliberate"], result)
+                self.assertEqual(plan["used"], 0, "Preview must not spend the budget")
+                self.assertGreaterEqual(plan["lossCp"], 50)
+                self.assertLessEqual(plan["lossCp"], 150)
+                self.assertEqual(plan["event"], {"ply": len(moves), "move": result["bestMove"], "lossCp": plan["lossCp"]})
+                self.assertEqual(result["lines"][0]["move"], result["bestMove"])
+                self.assertEqual(result["score"], result["lines"][0]["score"])
+                committed = self.post("/api/move", {"initialFen": board.root().fen(), "moves": moves, "move": result["bestMove"]})
+                exhausted = self.analyze(board.root().fen(), committed["moves"], strength=70, practice={**options, "events": [plan["event"]]})
+                self.assertEqual(exhausted["strength"], 70)
+                self.assertEqual(exhausted["skillLevel"], 13)
+                self.assertEqual(exhausted["practice"]["used"], 1)
+                self.assertFalse(exhausted["practice"]["deliberate"])
+                self.assertIsNone(exhausted["practice"]["event"])
+
+    def test_extra_practice_validation_and_precancellation(self):
+        for practice in [None, True, [], {"target": True}, {"target": 3}, {"startPly": 1},
+                         {"target": 1, "events": [{"ply": 0, "move": "e2e4", "lossCp": 75}]}]:
+            with self.subTest(practice=practice):
+                status, body = self.request("/api/analyze", {"moves": [], "requestId": str(uuid.uuid4()), "practice": practice})
+                self.assertEqual(status, 400, body)
+        ident = str(uuid.uuid4())
+        self.post("/api/stop", {"requestId": ident})
+        cancelled = self.analyze(requestId=ident, strength=70, practice={"target": 2})
+        self.assertTrue(cancelled["cancelled"])
+        self.assertEqual(cancelled["practice"], {"target": 2, "used": 0, "deliberate": False, "lossCp": None, "event": None})
+
     def test_stop_cancels_only_the_requested_search_and_engine_recovers(self):
         request_id = str(uuid.uuid4())
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            pending = executor.submit(self.analyze, seconds=30, requestId=request_id)
+            pending = executor.submit(self.analyze, seconds=30, requestId=request_id, strength=70, forgiving=True)
             time.sleep(0.5)
             self.assertFalse(pending.done(), "Long analysis unexpectedly finished before cancellation")
             self.post("/api/stop", {"requestId": "another-search"})
@@ -301,11 +444,201 @@ class SolverAPITest(unittest.TestCase):
             cancelled = pending.result(timeout=8)
         self.assertEqual(cancelled["requestId"], request_id)
         self.assertTrue(cancelled["cancelled"], cancelled)
+        self.assertEqual(cancelled["strength"], 70)
+        self.assertTrue(cancelled["forgiving"])
         recovered = self.analyze(moves=["d2d4"])
         board = chess.Board()
         board.push_uci("d2d4")
         self.assertFalse(recovered["cancelled"])
+        self.assertEqual(recovered["strength"], 100)
+        self.assertEqual(recovered["skillLevel"], 20)
         self.assertIn(chess.Move.from_uci(recovered["bestMove"]), board.legal_moves)
+
+    def test_explanation_evaluates_actual_move_and_legal_alternatives(self):
+        moves = ["e2e4", "e7e5", "a2a3"]
+        before = chess.Board()
+        for uci in moves[:-1]:
+            before.push_uci(uci)
+        actual = chess.Move.from_uci(moves[-1])
+        after = before.copy()
+        after.push(actual)
+        request_id = str(uuid.uuid4())
+        result = self.explain(moves, requestId=request_id)
+        self.assertEqual(result["requestId"], request_id)
+        self.assertFalse(result["cancelled"], result)
+        self.assertEqual(result["initialFen"], chess.STARTING_FEN)
+        self.assertEqual(result["beforeFen"], before.fen())
+        self.assertEqual(result["afterFen"], after.fen())
+        self.assertEqual(result["positionFen"], after.fen())
+        self.assertEqual(result["moves"], moves)
+        self.assertEqual(result["ply"], 3)
+        self.assertEqual(result["move"], {
+            "uci": "a2a3", "san": "a3", "color": "white",
+            "from": "a2", "to": "a3", "piece": "pawn",
+        })
+        self.assertTrue(result["summary"])
+        self.assertTrue(result["reasons"])
+        self.assertTrue(all(isinstance(reason, str) and reason for reason in result["reasons"]))
+        self.assertTrue(result["assessment"])
+        self.assert_explanation_line_legal(result["played"], before)
+        self.assertEqual(result["played"]["uciPv"][0], moves[-1])
+        self.assertGreater(len(result["alternatives"]), 0)
+        self.assertEqual(len({line["move"] for line in result["alternatives"]}), len(result["alternatives"]))
+        for line in result["alternatives"]:
+            self.assert_explanation_line_legal(line, before)
+            self.assertEqual(line["move"], line["uciPv"][0])
+            self.assertEqual(line["san"], line["pv"][0])
+            self.assertNotEqual(line["move"], moves[-1])
+            self.assertTrue(line["reason"])
+        self.assertEqual(self.position(moves)["fen"], after.fen(), "Review must not change the game")
+
+    def test_explanation_facts_match_rules_for_both_colors(self):
+        cases = [
+            ("7k/8/8/8/8/8/R7/K7 w - - 0 1", "a2h2", ("check",)),
+            ("7k/8/8/3q4/3R4/8/8/K7 w - - 0 1", "d4d5", ("captur", "queen")),
+            ("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1", "e1g1", ("castl", "rook")),
+            ("8/P6k/8/8/8/8/8/7K w - - 0 1", "a7a8n", ("promot", "knight")),
+            ("7k/8/8/3pP3/8/8/8/K7 w - d6 0 1", "e5d6", ("en passant", "pawn")),
+        ]
+        for fen, uci, expected_facts in cases:
+            original = chess.Board(fen)
+            original_move = chess.Move.from_uci(uci)
+            mirrored_move = chess.Move(
+                chess.square_mirror(original_move.from_square),
+                chess.square_mirror(original_move.to_square),
+                promotion=original_move.promotion,
+            )
+            for before, move in [(original, original_move), (original.mirror(), mirrored_move)]:
+                with self.subTest(fen=before.fen(), move=move.uci()):
+                    self.assertIn(move, before.legal_moves)
+                    after = before.copy()
+                    after.push(move)
+                    result = self.explain([move.uci()], before.fen())
+                    self.assertEqual(result["move"]["color"], "white" if before.turn else "black")
+                    self.assertEqual(result["move"]["san"], before.san(move))
+                    self.assertEqual(result["afterFen"], after.fen())
+                    description = " ".join([result["summary"], *result["reasons"]]).lower()
+                    for fact in expected_facts:
+                        self.assertIn(fact, description)
+                    self.assert_explanation_line_legal(result["played"], before)
+                    self.assertEqual(result["played"]["uciPv"][0], move.uci())
+
+    def test_explanation_quiet_opening_does_not_invent_forced_wins(self):
+        result = self.explain(["e2e4"])
+        description = " ".join([result["summary"], *result["reasons"], result["assessment"]]).lower()
+        self.assertNotIn("forced win", description)
+        self.assertNotIn("wins material", description)
+        self.assertNotIn("checkmate", description)
+        self.assertIsNone(result["played"]["score"]["mate"])
+
+    def test_explanation_distinguishes_pinned_piece_geometry_from_legal_capture(self):
+        before = chess.Board("k3r3/8/8/8/5q2/6N1/8/4K3 w - - 0 1")
+        move = chess.Move.from_uci("g3e2")
+        self.assertTrue(before.is_check())
+        self.assertIn(move, before.legal_moves)
+        after = before.copy()
+        after.push(move)
+        self.assertTrue(after.is_pinned(chess.WHITE, chess.E2))
+        self.assertIn(chess.F4, after.attacks(chess.E2))
+        white_reply = after.copy()
+        white_reply.turn = chess.WHITE
+        self.assertNotIn(chess.Move.from_uci("e2f4"), white_reply.legal_moves)
+        result = self.explain([move.uci()], before.fen(), strength=30)
+        description = " ".join(result["reasons"]).lower()
+        self.assertIn("pinned", description)
+        self.assertIn("geometric", description)
+        self.assertIn("queen on f4", description)
+        self.assert_explanation_line_legal(result["played"], before)
+        self.assertEqual(result["played"]["uciPv"][0], move.uci())
+        self.assertIn("highest evaluation among the reviewed candidates", result["assessment"])
+        self.assertIn("Reduced strength can choose a different move", result["assessment"])
+
+    def test_explanation_strength_profile_and_validation(self):
+        for strength, forgiving, skill in [(10, False, 0), (70, True, 4), (90, False, 17), (100, False, 20)]:
+            with self.subTest(strength=strength, forgiving=forgiving):
+                result = self.explain(["e2e4"], strength=strength, forgiving=forgiving)
+                self.assertEqual(result["strength"], strength)
+                self.assertEqual(result["forgiving"], forgiving)
+                self.assertEqual(result["skillLevel"], skill)
+                self.assertEqual(result["played"]["uciPv"][0], "e2e4")
+        for invalid in [{"strength": 9}, {"strength": 101}, {"strength": True},
+                        {"strength": "70"}, {"forgiving": "true"}, {"strength": 100, "forgiving": True}]:
+            with self.subTest(invalid=invalid):
+                status, body = self.request("/api/explain", {"moves": ["e2e4"], **invalid})
+                self.assertEqual(status, 400, body)
+                self.assertTrue(body["error"])
+
+    def test_explanation_empty_history_and_actual_checkmate_both_colors(self):
+        for fen in [chess.STARTING_FEN, "7k/5Q2/6K1/8/8/8/8/8 b - - 0 1"]:
+            empty = self.explain(initial_fen=fen)
+            self.assertIsNone(empty["move"])
+            self.assertIsNone(empty["played"])
+            self.assertEqual(empty["reasons"], [])
+            self.assertEqual(empty["alternatives"], [])
+            self.assertFalse(empty["cancelled"])
+        white = chess.Board("7k/8/5KQ1/8/8/8/8/8 w - - 0 1")
+        for before, uci, expected_mate in [(white, "g6g7", 1), (white.mirror(), "g3g2", -1)]:
+            with self.subTest(turn=before.turn):
+                after = before.copy()
+                after.push_uci(uci)
+                self.assertTrue(after.is_checkmate())
+                result = self.explain([uci], before.fen(), strength=100)
+                self.assertEqual(result["afterFen"], after.fen())
+                self.assertEqual(result["played"]["score"], {"cp": None, "mate": expected_mate})
+                self.assertIn("checkmate", " ".join([result["summary"], *result["reasons"]]).lower())
+                self.assertEqual(result["played"]["uciPv"][0], uci)
+
+    def test_explanation_cancellation_before_arrival_and_overlapping_requests(self):
+        cancelled_id = str(uuid.uuid4())
+        self.post("/api/explain/stop", {"requestId": cancelled_id})
+        cancelled = self.explain(["e2e4"], requestId=cancelled_id)
+        self.assertTrue(cancelled["cancelled"], cancelled)
+        first_id, second_id = str(uuid.uuid4()), str(uuid.uuid4())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(self.explain, ["e2e4"], requestId=first_id)
+            time.sleep(0.08)
+            second = executor.submit(self.explain, ["d2d4"], requestId=second_id)
+            first_result, second_result = first.result(timeout=8), second.result(timeout=8)
+        self.assertEqual(first_result["requestId"], first_id)
+        self.assertTrue(first_result["cancelled"], first_result)
+        self.assertEqual(second_result["requestId"], second_id)
+        self.assertFalse(second_result["cancelled"], second_result)
+        self.assertEqual(second_result["move"]["uci"], "d2d4")
+
+    def test_pre_cancelled_late_review_does_not_interrupt_newer_review(self):
+        stale_id, current_id = str(uuid.uuid4()), str(uuid.uuid4())
+        self.post("/api/explain/stop", {"requestId": stale_id})
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            current = executor.submit(self.explain, ["e2e4"], requestId=current_id)
+            time.sleep(0.08)
+            stale = self.explain(["d2d4"], requestId=stale_id)
+            self.assertTrue(stale["cancelled"], stale)
+            result = current.result(timeout=8)
+        self.assertEqual(result["requestId"], current_id)
+        self.assertFalse(result["cancelled"], result)
+        self.assertEqual(result["move"]["uci"], "e2e4")
+
+    def test_explanation_and_main_analysis_do_not_cross_cancel(self):
+        request_id = str(uuid.uuid4())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            main_search = executor.submit(self.analyze, seconds=30, requestId=request_id)
+            try:
+                time.sleep(0.2)
+                review = self.explain(["e2e4"], requestId=request_id)
+                self.assertFalse(review["cancelled"], review)
+                self.assertFalse(main_search.done(), "Coach search must not replace main analysis")
+                self.post("/api/explain/stop", {"requestId": request_id})
+                time.sleep(0.05)
+                self.assertFalse(main_search.done(), "Coach stop must not cancel main analysis")
+                coach_id = str(uuid.uuid4())
+                pending_review = executor.submit(self.explain, ["d2d4"], requestId=coach_id)
+                time.sleep(0.08)
+                self.post("/api/stop", {"requestId": coach_id})
+                review = pending_review.result(timeout=8)
+                self.assertFalse(review["cancelled"], "Main stop must not cancel coach review")
+            finally:
+                self.post("/api/stop", {"requestId": request_id})
+                self.assertTrue(main_search.result(timeout=8)["cancelled"])
 
 
 if __name__ == "__main__":

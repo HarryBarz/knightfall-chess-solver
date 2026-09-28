@@ -1,6 +1,6 @@
 # Knightfall
 
-A local chess analysis desk powered by native **Stockfish 19**. Enter the opponent's move on the board or in notation, and the engine automatically calculates and plays its reply.
+A local chess practice and analysis desk powered by native **Stockfish 19**. Play against an adjustable opponent on the board or in notation, and the engine automatically calculates and plays its reply.
 
 ## Run
 
@@ -19,18 +19,50 @@ Setup creates a local Python environment, downloads the pinned official Stockfis
 
 ## Play
 
-1. Select **Engine plays White** or **Black**. Black is the default, so you can enter White's opening move immediately.
-2. Enter the opponent's move by clicking its piece and destination, or typing SAN (`Nf3`, `O-O`) or UCI (`g1f3`).
-3. With **Automatic replies** enabled, the engine plays its reply on this board. Read the highlighted move and move history to see what it chose.
+1. On first launch and each **New game**, choose your side and **Opponent strength** from 10% to 100%. The initial default is 70%; later games remember your choice. Choose **Forgiving opponent** for an easier practice game, then **Start game**. Cancelling keeps your current board and settings.
+2. Enter your move by clicking its piece and destination, or typing SAN (`Nf3`, `O-O`) or UCI (`g1f3`).
+3. With **Automatic replies** enabled, the engine plays its reply on this board at the selected strength. If you choose Black, the engine makes White's opening move.
 4. Choose a thinking time from 1 second to 2 minutes. For difficult positions, give it 30–120 seconds.
 
-Turn automatic replies off for manual analysis of either side. **Analyze position** calculates a move, and **Play best move** applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed opponent/engine pair in automatic mode, or one move in manual mode.
+Turn automatic replies off for manual analysis of either side. **Analyze position** calculates a move: the engine's side uses the current practice settings, while your side gets full-strength analysis. **Play engine move** (or **Play best move** at full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
 
 You can flip the board, import a FEN position or PGN game, copy the current FEN, and export PGN. Games and settings are saved in this browser's local storage. Imported PGN keeps repetition history; FEN only contains the current position and cannot recover earlier repetitions. The app supports standard chess.
 
+## Screenshot import
+
+Choose **Import**, then **Import screenshot**, to continue a local practice game from an image of an existing position. Recognition runs in your browser with a self-hosted model; the image is not uploaded to the chess server or an external service. Only the confirmed position is sent to the local chess API.
+
+Use a clear PNG, JPEG, or WebP screenshot containing the entire flat, two-dimensional board (up to 10 MB, 16 megapixels, and 8192 pixels per side). Recognition is not guaranteed across every piece theme, overlay, crop, or image quality. Physical boards and 3D pieces are not supported. Review all 64 squares and correct any misplaced or missing pieces before continuing, even when the model reports high confidence. A valid image that cannot be recognized can still be used as a reference for manual setup.
+
+Confirm the screenshot's orientation, whose turn it is, and which side you want to play. These are separate choices: a screenshot with Black at the bottom does not establish that Black is to move. Choose the practice strength, then continue against Stockfish from the confirmed position. Cancelling the draft does not replace your board or settings.
+
+A screenshot cannot recover earlier moves, repetitions, exact capture history, or castling rights. Castling starts disabled unless you explicitly enable the remaining rights; home-square king and rook placement alone does not prove those rights exist. En passant and move counters can be entered separately. The default counters start a new continuation from the imported position, not a reconstruction of the original game's history. Captured-piece displays are not required: the pieces still on the board determine the position.
+
+Screenshot import is for permitted local practice and game review, not covert assistance in live online games. Lower engine strength does not bypass another site's fair-play rules.
+
+## Move notes
+
+On a wide screen, the board and existing controls sit on the left, with written **Move notes** on the right. Smaller screens stack these areas. There is no second board.
+
+Notes review completed moves: checks, captures, development, central squares, opened bishop diagonals, and attacks on opposing pieces. They compare the actual move with up to three legal alternatives, including short continuations and scores from White's perspective. These are board facts and brief engine estimates, not claims about a player's intention or proof that an apparent attack wins material.
+
+**Live notes** follows each new move. Use the move selector or arrows to review an earlier move, or refresh to search again. Turning Live notes off pauses automatic review. Reviewing history never changes the playing board, and obsolete responses are discarded after undo, import, or a new game.
+
+Review uses a separate Stockfish process with one thread, 32 MB hash, and a short search budget, leaving the playing engine's search lock and settings untouched. It uses the selected practice strength and forgiving setting, but a brief review may rank moves differently from a longer playing search. It does not reproduce the engine's randomized lower-strength decision. The percentage remains a difficulty setting, not measured accuracy.
+
 ## Engine strength and evaluation
 
-Stockfish runs with `Skill Level = 20`, `UCI_LimitStrength = false`, and one candidate line by default. CPU threads and hash memory are configurable. More candidate lines share the thinking budget, so keep **1 · Strongest search** when your priority is the strongest single reply. These settings follow the [official Stockfish guidance](https://official-stockfish.github.io/docs/stockfish-wiki/Stockfish-FAQ.html#optimal-settings).
+The percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
+
+Strength maps to Stockfish's built-in `Skill Level` using `floor((strength - 10) * 20 / 90)`: 10% selects level 0, 70% level 13, 80% level 15, 90% level 17, and 100% level 20. **Forgiving opponent** caps that level at 4; it does not force a loss. Selecting 100% turns forgiving mode off, and enabling forgiving mode at 100% changes the setting to 90%. Stockfish can remain challenging even at low levels.
+
+**Extra practice inaccuracies** is optional in new-game and screenshot setup: Off, 1 target, or 2 target. It keeps the chosen strength and forgiving setting and aims to add up to that many deliberate inaccuracies for local practice. These are additional opportunities, not a cap on all mistakes: reduced-strength play can make other errors. Short games or positions without suitable choices can finish below the target. It does not simulate a human rating or establish a fair-play outcome.
+
+An eligible extra move must lose an estimated 50-150 centipawns (0.5-1.5 pawns) relative to the top searched candidate and at least 50 centipawns relative to the ordinary choice. This is this app's definition, not a Chess.com classification. The ordinary choice must be within 25 centipawns of the top candidate, so the feature does not replace an already weak choice with a stronger move. Search depth must be at least 10 with an unbounded numeric score. Mate-scored positions and positions with immediate checkmate available are excluded from deliberate changes; the normal reduced-strength opponent can still miss tactics.
+
+The first opportunity is eligible after six new plies, with at least twelve plies between committed opportunities. Unsuitable positions are skipped and retried later. The counter advances only when the proposed move is successfully played; previewing, stopping or failed moves do not spend it. Undo removes events from the undone branch, reload preserves them, and new games and successful imports start a fresh allowance. Imported PGN starts counting from the imported endpoint. Your-side analysis and the independent written reviews do not add or consume opportunities.
+
+Each search resets its strength options with `UCI_LimitStrength = false`. Searches below full strength use at least four internal candidate lines for Stockfish's weaker move selection; an eligible extra-inaccuracy search uses eight. Otherwise full-strength searches use your selected number of candidate lines. The displayed candidates honor your 1-3 line setting, and the chosen move's evaluation and variation are displayed together. CPU threads and hash memory remain configurable. More candidate lines share the thinking budget and can change Stockfish's ordinary choice, so leave extras Off and keep **1 · Strongest search** when your priority is the strongest single reply. See the [official Stockfish guidance](https://official-stockfish.github.io/docs/stockfish-wiki/Stockfish-FAQ.html#optimal-settings).
 
 Evaluations always use **White's perspective**: positive favors White, negative favors Black. A mate score identifies which side has a forced mate. After an automatic reply, the displayed analysis describes the position immediately before that reply.
 
@@ -41,16 +73,32 @@ This is an interface to Stockfish, not a new engine trained from scratch. Stockf
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
 node scripts/browser_smoke.mjs
+node scripts/screenshot_smoke.mjs
 ```
 
-The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, cancellation, and recovery. Browser checks require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
+The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, practice strength, forgiving mode, cancellation, recovery, and independent move reviews. Extra-inaccuracy checks cover candidate bounds, mate protection, budget/history validation and real-engine selection for both colors. Browser checks cover playing, written reviews, stale responses, extra-inaccuracy counter persistence and responsive layout. They require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
 
 The application binds to your computer's loopback interface. No account, API key, subscription, or internet connection is required after setup.
+
+## Rebuild image recognition
+
+The recognition bundle, model, and WebAssembly runtime are included under `web/vendor/screenshot/`; ordinary use does not require Node or npm. The first screenshot scan lazily loads about 14.4 MB of local assets. To rebuild them with Node.js 22+:
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm run build:recognizer
+```
+
+Package versions are pinned in `package-lock.json`. The build preserves the accompanying licenses and writes an asset-size and SHA-256 manifest. Keep the vendor directory when copying the app to another machine.
 
 ## Components
 
 - `server.py`: HTTP API, chess rules, game history, and persistent UCI engine.
+- `coach.py`: independent, bounded Stockfish reviews and board-grounded move notes.
+- `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.
 - `web/`: responsive browser interface, using plain HTML, CSS, and JavaScript.
+- `web/vendor/screenshot/`: self-hosted recognition model, WebAssembly runtime, and licenses, loaded only for screenshot import.
+- `scripts/build_screenshot_recognizer.mjs`: reproducible browser recognition bundle (Node/npm needed only to rebuild these assets).
 - `scripts/install_stockfish.py`: pinned engine download and checksum verification.
 - `tests/test_solver.py`: executable integration tests.
 

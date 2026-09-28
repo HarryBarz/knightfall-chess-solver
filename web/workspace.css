@@ -1,0 +1,99 @@
+main { max-width: 1720px; margin: 0 auto; padding: 22px 28px 0; }
+.site-header { max-width: 1780px; padding: 18px 28px; }
+.page-heading { margin-bottom: 20px; }
+.eyebrow { margin-bottom: 8px; letter-spacing: 0; }
+h1 { font-size: 34px; letter-spacing: 0; }
+h2 { letter-spacing: 0; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 28px; max-width: none; align-items: start; }
+.play-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 268px; gap: 22px; min-width: 0; }
+.board-panel { max-width: min(680px, max(360px, calc(100vh - 410px))); width: 100%; justify-self: center; min-width: 0; }
+.sidebar { display: flex; flex-direction: column; gap: 0; padding-top: 0; min-width: 0; }
+.sidebar .card { padding: 16px 0; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; height: auto; }
+.sidebar .card:first-child { padding-top: 6px; }
+.sidebar .card-heading { margin-bottom: 14px; }
+.sidebar h2 { font-size: 14px; }
+.sidebar .engine-tag { max-width: 116px; }
+.sidebar .analysis-status { margin-bottom: 15px; }
+.sidebar .evaluation-value { font-size: 36px; letter-spacing: 0; }
+.sidebar .best-move { font-size: 30px; letter-spacing: 0; }
+.sidebar .analysis-caption { margin: 12px 0; }
+.sidebar .engine-stats { padding: 10px 0; margin-bottom: 12px; }
+.sidebar .variations { padding-bottom: 10px; }
+.sidebar .practice-setting { gap: 4px; padding-bottom: 11px; margin-bottom: 12px; }
+.sidebar .practice-setting strong { font-size: 12px; }
+.sidebar .practice-setting { align-items: flex-start; }
+#practice-inaccuracies-status { line-height: 1.5; overflow-wrap: anywhere; }
+.game-inaccuracies-row { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin: 0 0 22px; }
+.game-inaccuracies-row label { min-width: 0; font-size: 13px; line-height: 1.5; }
+.game-inaccuracies-row select { min-width: 110px; max-width: 45%; flex-shrink: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--input); color: var(--ink); padding: 9px 10px; font-size: 13px; }
+.sidebar .toggle-row { padding: 14px 0; }
+.sidebar .time-setting { padding-top: 12px; }
+.sidebar .advanced { margin-top: 12px; padding-top: 11px; }
+.sidebar .segmented button { padding: 6px 9px; }
+.sidebar .history { max-height: 145px; }
+.coach-panel { min-width: 0; border-left: 1px solid var(--line); padding: 6px 0 12px 26px; position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow: auto; scrollbar-width: thin; scrollbar-color: #67645f transparent; }
+.coach-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; }
+.coach-heading h2 { font-size: 18px; margin-bottom: 7px; }
+.coach-heading .subtle { font-size: 11px; color: var(--green); display: block; line-height: 1.5; }
+.coach-auto-label { display: flex; align-items: center; gap: 7px; flex-shrink: 0; font-size: 11px; color: var(--muted); cursor: pointer; }
+.coach-auto-label input { width: 15px; height: 15px; margin: 0; accent-color: var(--green); }
+.coach-navigation { display: grid; grid-template-columns: 32px minmax(0, 1fr) 32px 32px; gap: 6px; align-items: center; }
+.coach-navigation select { height: 36px; min-width: 0; width: 100%; border: 1px solid var(--line); border-radius: 4px; background: var(--input); color: var(--ink); padding: 0 8px; font-size: 12px; }
+.coach-icon-button { width: 32px; height: 36px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--muted); font-size: 19px; }
+.coach-icon-button:hover:not(:disabled) { color: var(--ink); background: var(--surface); }
+.coach-status { min-height: 17px; font-size: 11px; line-height: 1.6; color: var(--muted); margin: 12px 0 20px; }
+.coach-empty { margin: 32px 0; font-size: 13px; color: var(--muted); }
+#coach-content { overflow-wrap: anywhere; }
+#coach-title { font-size: 23px; line-height: 1.35; margin: 0 0 13px; font-weight: 650; letter-spacing: 0; }
+.coach-summary { font-size: 14px; line-height: 1.75; margin: 0 0 18px; }
+.coach-reasons { padding-left: 18px; margin: 0 0 20px; color: var(--muted); font-size: 12px; line-height: 1.8; }
+.coach-reasons li { padding-left: 3px; margin: 8px 0; }
+.coach-reasons li::marker { color: var(--green); }
+.coach-assessment { font-size: 12px; line-height: 1.8; color: #c7d9b9; border-left: 2px solid var(--green); padding-left: 12px; margin: 20px 0; }
+.coach-alternatives-section { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
+.coach-alternatives-section > h3 { font-size: 13px; margin: 0 0 6px; letter-spacing: 0; }
+.coach-alternative { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.coach-alternative:last-child { border-bottom: 0; }
+.coach-alternative-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.coach-alternative-heading strong { font-size: 17px; }
+.coach-score { font-size: 12px; font-variant-numeric: tabular-nums; color: var(--green); }
+.coach-alternative p { font-size: 12px; line-height: 1.75; color: var(--muted); margin: 9px 0 0; }
+.coach-alternative .coach-line { font-size: 11px; color: #c7d9b9; font-variant-numeric: tabular-nums; }
+footer { margin-top: 26px; }
+
+@media (min-width: 1580px) {
+  .workspace { grid-template-columns: minmax(0, 1fr) 410px; gap: 32px; }
+  .play-workspace { grid-template-columns: minmax(0, 1fr) 290px; gap: 26px; }
+}
+@media (max-width: 1250px) and (min-width: 981px) {
+  main { padding-left: 20px; padding-right: 20px; }
+  .workspace { grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; }
+  .play-workspace { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .board-panel { max-width: 600px; }
+  .sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .sidebar .history-card { grid-column: 1 / -1; }
+  .coach-panel { padding-left: 20px; }
+}
+@media (max-width: 980px) {
+  main { padding: 24px 20px 0; }
+  .site-header { padding: 18px 20px; }
+  .workspace { grid-template-columns: minmax(0, 1fr); gap: 28px; max-width: 760px; margin: auto; }
+  .play-workspace { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .board-panel { max-width: 640px; }
+  .sidebar { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .sidebar .history-card { grid-column: 1 / -1; }
+  .coach-panel { position: static; max-height: none; border-left: 0; border-top: 1px solid var(--line); padding: 24px 0 0; }
+  footer { max-width: 760px; }
+}
+@media (max-width: 600px) {
+  main { padding: 24px 17px 0; }
+  .site-header { padding: 18px 20px; }
+  .page-heading { align-items: flex-start; }
+  h1 { font-size: 30px; }
+  .sidebar { display: flex; gap: 0; }
+  .sidebar .card { padding: 20px 0; }
+  .sidebar .evaluation-value { font-size: 40px; }
+  .sidebar .segmented button { padding: 6px 12px; }
+  .coach-panel { padding-top: 22px; }
+  .coach-summary { font-size: 13px; }
+}

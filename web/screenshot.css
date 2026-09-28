@@ -1,0 +1,68 @@
+.screenshot-entry { width: 100%; margin: 0 0 20px; justify-content: flex-start; }
+.screenshot-entry > span { font-size: 20px; }
+#screenshot-dialog { width: min(940px, calc(100% - 32px)); border-radius: 8px; padding: 24px; overflow: auto; }
+#screenshot-dialog * { letter-spacing: 0; }
+#screenshot-dialog .dialog-heading h2 { font-size: 24px; line-height: 1.3; }
+#screenshot-dialog h3 { font-size: 13px; line-height: 1.4; margin: 0 0 12px; font-weight: 650; }
+#screenshot-dialog .icon-button { width: 32px; height: 32px; flex-shrink: 0; }
+.screenshot-file-row { display: flex; justify-content: space-between; align-items: end; gap: 16px; margin-top: 20px; }
+.screenshot-file-row > label { display: block; min-width: 0; font-size: 12px; font-weight: 600; }
+#screenshot-file { display: block; max-width: 100%; font-size: 11px; color: var(--muted); margin-top: 8px; }
+#screenshot-file::file-selector-button { border: 1px solid var(--line); border-radius: 4px; padding: 9px 12px; background: var(--input); color: var(--ink); cursor: pointer; margin-right: 12px; }
+.screenshot-file-row .subtle { flex-shrink: 0; padding-bottom: 9px; }
+#screenshot-status { font-size: 12px; line-height: 1.6; color: var(--muted); margin: 14px 0; }
+.screenshot-recovery { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 20px; }
+.screenshot-columns { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1fr); gap: 28px; padding: 20px 0; border-top: 1px solid var(--line); }
+.screenshot-columns > section { min-width: 0; }
+.screenshot-preview { background: var(--input); min-height: 130px; height: 235px; display: grid; place-items: center; overflow: hidden; }
+.screenshot-preview img { display: block; max-width: 100%; max-height: 235px; object-fit: contain; }
+.screenshot-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+.screenshot-fields > label { font-size: 11px; color: var(--muted); min-width: 0; }
+.screenshot-fields > label:first-child { grid-column: 1 / -1; }
+.screenshot-fields select, .screenshot-fields input { display: block; border: 1px solid var(--line); border-radius: 4px; background: var(--input); color: var(--ink); width: 100%; min-width: 0; padding: 9px 8px; font-size: 12px; margin-top: 6px; }
+.screenshot-castling { border: 0; padding: 0; margin: 20px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px 8px; }
+.screenshot-castling legend { padding: 0; margin-bottom: 12px; font-size: 12px; font-weight: 600; }
+.screenshot-castling label { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.4; }
+.screenshot-castling label:has(input:disabled) { color: var(--muted); }
+#screenshot-dialog input[type=checkbox], #screenshot-dialog input[type=range] { accent-color: var(--green); }
+.screenshot-castling input, .screenshot-confirmation input, .screenshot-forgiving input { flex-shrink: 0; width: 16px; height: 16px; margin: 0; }
+.screenshot-advanced { margin-top: 20px; font-size: 11px; color: var(--muted); }
+.screenshot-advanced > summary { cursor: pointer; width: max-content; }
+.screenshot-position-heading { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; min-height: 30px; }
+.screenshot-uncertain { font-size: 10px; line-height: 1.4; color: #f6d365; text-align: right; }
+.screenshot-board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 4px; }
+.screenshot-square { position: relative; padding: 3%; border: 0; border-radius: 0; min-width: 0; aspect-ratio: 1; background: var(--light-square); display: grid; place-items: center; }
+.screenshot-square.dark { background: var(--dark-square); }
+.screenshot-square > img { display: block; width: 94%; height: 94%; pointer-events: none; object-fit: contain; }
+.screenshot-square > .screenshot-coordinate { position: absolute; font-size: 9px; font-weight: 700; line-height: 1; color: #47612e; left: 3px; top: 3px; pointer-events: none; }
+.screenshot-square.dark > .screenshot-coordinate { color: #eeeed2; }
+.screenshot-square.uncertain::after { content: ""; position: absolute; width: 7px; height: 7px; border-radius: 50%; background: #f6d365; border: 1px solid #5a4510; bottom: 3px; right: 3px; pointer-events: none; }
+.screenshot-square:focus-visible { outline: 3px solid #f6d365; outline-offset: -3px; z-index: 1; }
+.screenshot-palette { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; margin-top: 12px; }
+.screenshot-piece { display: grid; place-items: center; min-width: 0; aspect-ratio: 1; padding: 4px; background: var(--input); border: 1px solid var(--line); border-radius: 4px; }
+.screenshot-piece > img { height: 100%; width: 100%; max-height: 42px; max-width: 42px; object-fit: contain; pointer-events: none; }
+.screenshot-piece[aria-pressed=true] { border-color: var(--green); background: var(--sage); outline: 1px solid var(--green); outline-offset: -2px; }
+.screenshot-piece.eraser { grid-column: 7; grid-row: 1 / 3; aspect-ratio: auto; font-size: 27px; color: var(--muted); }
+.screenshot-inventory { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+.screenshot-inventory strong { color: var(--ink); display: block; font-weight: 600; }
+.screenshot-practice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 28px; padding: 16px 0; border-top: 1px solid var(--line); }
+.screenshot-practice .game-strength-heading { font-size: 12px; }
+#screenshot-strength { width: 100%; height: 20px; display: block; margin: 10px 0 0; }
+#screenshot-strength-value { color: var(--green); font-size: 16px; font-weight: 600; }
+.screenshot-forgiving { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.screenshot-history-note { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 0 0 12px; }
+.screenshot-confirmation { display: flex; gap: 9px; align-items: center; font-size: 12px; line-height: 1.5; }
+.screenshot-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 20px; }
+.screenshot-footer .button { white-space: normal; }
+@media (max-width: 650px) {
+  #screenshot-dialog { padding: 18px; width: calc(100% - 20px); max-height: calc(100% - 20px); }
+  #screenshot-dialog .dialog-heading h2 { font-size: 22px; }
+  .screenshot-file-row { display: block; }
+  .screenshot-file-row .subtle { display: block; margin-top: 9px; padding: 0; }
+  .screenshot-columns { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .screenshot-preview, .screenshot-preview img { max-height: 190px; }
+  .screenshot-preview { height: 190px; }
+  .screenshot-position { grid-row: 1; }
+  .screenshot-practice { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .screenshot-footer .button-primary { flex: 1; }
+}

@@ -14,9 +14,17 @@
     threads: validInteger(saved?.settings?.threads, 1, 512, 1),
     hashMb: validInteger(saved?.settings?.hashMb, 16, 65536, 128),
     multiPv: validInteger(saved?.settings?.multiPv, 1, 3, 1),
+    strength: validInteger(saved?.settings?.strength, 10, 100, saved ? 100 : 70),
+    forgiving: saved?.settings?.forgiving === true && validInteger(saved?.settings?.strength, 10, 100, 100) < 100,
+    extraInaccuracies: [0, 1, 2].includes(saved?.settings?.extraInaccuracies) ? saved.settings.extraInaccuracies : 0,
     flipped: saved?.settings?.flipped === true,
   };
+  let gameConfigured = saved?.gameConfigured === true || Boolean(saved?.moves?.length);
+  let newGameSubmitting = false;
+  let previousAutoPaused = false;
+  let screenshotImportOpen = false;
   let state = null;
+  let practiceLedger = null;
   let health = null;
   let busy = true;
   let selected = null;
@@ -42,7 +50,7 @@
   function save() {
     if (!state) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger }));
     } catch { /* Private browsing and full storage must not interrupt a game. */ }
   }
 
@@ -52,6 +60,54 @@
 
   function context() {
     return { initialFen: state.initialFen, moves: [...state.moves] };
+  }
+
+  function samePosition(left, right) {
+    return Boolean(left && right && left.initialFen === right.initialFen && left.moves.length === right.moves.length && left.moves.every((move, index) => move === right.moves[index]));
+  }
+
+  function resetPractice() {
+    practiceLedger = { ...context(), startPly: state.moves.length, events: [] };
+  }
+
+  function validPracticeEvent(event, startPly, moves, previousPly = null) {
+    return Boolean(event && Number.isInteger(event.ply) && event.ply >= startPly + 6 && event.ply < moves.length &&
+      (previousPly === null || event.ply >= previousPly + 12) && typeof event.move === "string" && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(event.move) &&
+      moves[event.ply] === event.move && Number.isInteger(event.lossCp) && event.lossCp >= 50 && event.lossCp <= 150);
+  }
+
+  function restorePractice(candidate) {
+    resetPractice();
+    if (!candidate || !Array.isArray(candidate.moves) || !samePosition(candidate, state) ||
+      !Number.isInteger(candidate.startPly) || candidate.startPly < 0 || candidate.startPly > state.moves.length ||
+      !Array.isArray(candidate.events) || candidate.events.length > settings.extraInaccuracies) return;
+    let previousPly = null;
+    for (const event of candidate.events) {
+      if (!validPracticeEvent(event, candidate.startPly, state.moves, previousPly)) return;
+      previousPly = event.ply;
+    }
+    practiceLedger = { ...context(), startPly: candidate.startPly, events: candidate.events.map(({ ply, move, lossCp }) => ({ ply, move, lossCp })) };
+  }
+
+  function reconcilePractice() {
+    if (!practiceLedger || practiceLedger.initialFen !== state.initialFen) { resetPractice(); return; }
+    let sharedPlies = 0;
+    while (sharedPlies < Math.min(practiceLedger.moves.length, state.moves.length) && practiceLedger.moves[sharedPlies] === state.moves[sharedPlies]) sharedPlies++;
+    practiceLedger.events = practiceLedger.events.filter((event) => event.ply < sharedPlies);
+    practiceLedger.startPly = Math.min(practiceLedger.startPly, sharedPlies);
+    practiceLedger.moves = [...state.moves];
+  }
+
+  function commitPracticeMove(previous, position, move) {
+    const proposal = previous?.practice;
+    const event = proposal?.event;
+    if (!proposal?.deliberate || proposal.target !== settings.extraInaccuracies || previous.bestMove !== move ||
+      !samePosition(previous.positionContext, position) || state.initialFen !== position.initialFen ||
+      state.moves.length !== position.moves.length + 1 || !position.moves.every((item, index) => state.moves[index] === item) ||
+      !event || event.ply !== position.moves.length || event.move !== move || proposal.lossCp !== event.lossCp ||
+      practiceLedger.events.length >= settings.extraInaccuracies ||
+      !validPracticeEvent(event, practiceLedger.startPly, state.moves, practiceLedger.events.at(-1)?.ply ?? null)) return;
+    practiceLedger.events.push({ ply: event.ply, move: event.move, lossCp: event.lossCp });
   }
 
   async function api(path, body) {
@@ -76,8 +132,8 @@
   }
 
   function available() { return health?.engineAvailable === true; }
-  function interactive() { return Boolean(state && !busy && !activeSearch && !stoppingSearch && !state.outcome); }
-  function resultApplicable() { return Boolean(analysis?.bestMove && !analysis.applied && state && analysis.positionFen === state.fen); }
+  function interactive() { return Boolean(state && !busy && !activeSearch && !stoppingSearch && !state.outcome && !screenshotImportOpen && !$("new-game-dialog").open); }
+  function resultApplicable() { return Boolean(analysis?.bestMove && !analysis.applied && state && analysis.positionFen === state.fen && samePosition(analysis.positionContext, state)); }
 
   function render() {
     renderBoard();
@@ -85,6 +141,17 @@
     renderHistory();
     renderAnalysis();
     renderControls();
+    if (state) window.dispatchEvent(new CustomEvent("knightfall:position", { detail: {
+      initialFen: state.initialFen,
+      moves: [...state.moves],
+      history: state.history.map((move) => ({ ...move })),
+      fen: state.fen,
+      strength: settings.strength,
+      forgiving: settings.forgiving,
+      solver: settings.solver,
+      flipped: settings.flipped,
+      ready: available(),
+    } }));
   }
 
   function renderBoard() {
@@ -154,12 +221,12 @@
     const bottom = top === "white" ? "black" : "white";
     for (const [position, color] of [["top", top], ["bottom", bottom]]) {
       const isSolver = color === settings.solver;
-      $(`${position}-player-name`).textContent = isSolver ? "Your engine" : "Your opponent";
-      $(`${position}-player-detail`).textContent = `${capitalize(color)} · ${isSolver ? "Stockfish" : "Enter their moves"}`;
+      $(`${position}-player-name`).textContent = isSolver ? "Practice opponent" : "You";
+      $(`${position}-player-detail`).textContent = `${capitalize(color)} · ${isSolver ? `Stockfish · ${settings.strength}%` : "Your pieces"}`;
       $(`${position}-player-icon`).textContent = color === "white" ? "♔" : "♚";
       $(`${position}-player-icon`).classList.toggle("light-icon", color === "white");
     }
-    $("top-player-badge").textContent = top === settings.solver ? "ENGINE" : "OPPONENT";
+    $("top-player-badge").textContent = top === settings.solver ? "ENGINE" : "YOU";
     $("turn-badge").textContent = !state ? "Loading position" : state.outcome ? state.outcome.result : activeSearch ? "Engine thinking…" : `${capitalize(state.turn)} to move${state.check ? " · Check" : ""}`;
   }
 
@@ -221,10 +288,11 @@
   function renderAnalysis() {
     const running = Boolean(activeSearch);
     $("thinking-dot").className = `status-dot${running ? " thinking" : available() ? " ready" : " error"}`;
-    $("analysis-status").textContent = running ? activeSearch.autoPlay ? "Finding your reply" : "Reading the position" : statusOverride || (state?.outcome ? "Game complete" : !health ? "Getting ready" : !available() ? "Engine unavailable" : analysis ? "Analysis complete" : "Ready when you are");
+    $("analysis-status").textContent = running ? activeSearch.autoPlay ? "Opponent thinking" : "Reading the position" : statusOverride || (state?.outcome ? "Game complete" : !health ? "Getting ready" : !available() ? "Engine unavailable" : analysis ? "Analysis complete" : "Ready when you are");
     $("elapsed").hidden = !running;
     $("score").textContent = formatScore(analysis?.score);
     $("best-move").textContent = analysis?.bestSan || "—";
+    $("best-move-label").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate ? "BEST MOVE" : "ENGINE MOVE";
     $("depth").textContent = analysis?.depth ? String(analysis.depth) : "—";
     $("nodes").textContent = analysis?.nodes ? compactNumber(analysis.nodes) : "—";
     $("analysis-time").textContent = analysis?.timeMs !== undefined ? `${(analysis.timeMs / 1000).toFixed(1)}s` : "—";
@@ -236,8 +304,8 @@
     let percent = typeof cp === "number" ? 50 + 46 * Math.tanh(cp / 550) : typeof mate === "number" ? mate > 0 ? 98 : mate < 0 ? 2 : 50 : 50;
     if (settings.flipped) percent = 100 - percent;
     $("evaluation-fill").style.height = `${percent}%`;
-    $("evaluation-fill").style.background = settings.flipped ? "#2d3730" : "#fffdf1";
-    $("evaluation-rail").style.background = settings.flipped ? "#fffdf1" : "#2d3730";
+    $("evaluation-fill").style.background = settings.flipped ? "var(--eval-black)" : "var(--eval-white)";
+    $("evaluation-rail").style.background = settings.flipped ? "var(--eval-white)" : "var(--eval-black)";
     $("evaluation-rail").setAttribute("aria-label", analysis ? `${formatScore(analysis.score)}, from White’s perspective. ${scoreDescription(analysis.score)}${isOld ? " Before the engine’s reply." : ""}` : "No engine evaluation yet");
     const variations = $("variations");
     variations.replaceChildren();
@@ -260,24 +328,28 @@
     const running = Boolean(activeSearch);
     $("move-input").disabled = !interactive();
     $("submit-move").disabled = !interactive();
-    $("undo").disabled = busy || !state?.moves?.length;
-    $("new-game").disabled = busy;
-    $("import").disabled = busy;
+    $("undo").disabled = busy || screenshotImportOpen || !state?.moves?.length;
+    $("new-game").disabled = busy || screenshotImportOpen;
+    $("import").disabled = busy || screenshotImportOpen;
     $("copy-fen").disabled = !state;
     $("export-pgn").disabled = !state;
     $("analyze").hidden = running;
-    $("analyze").disabled = busy || Boolean(stoppingSearch) || !state || Boolean(state.outcome) || !available();
+    $("analyze").disabled = busy || screenshotImportOpen || Boolean(stoppingSearch) || !state || Boolean(state.outcome) || !available();
     $("stop").hidden = !running && !stoppingSearch;
     $("stop").disabled = Boolean(stoppingSearch);
     $("stop").textContent = stoppingSearch ? "Stopping…" : "Stop analysis";
     $("play-best").hidden = !resultApplicable() || running;
     $("play-best").disabled = !interactive();
+    $("play-best").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate ? "Play best move" : "Play engine move";
+    $("practice-summary").textContent = `${settings.strength}% strength${settings.forgiving ? " · Forgiving" : ""}`;
+    $("practice-inaccuracies-status").textContent = `Extra inaccuracies: ${practiceLedger?.events.length || 0}/${settings.extraInaccuracies} target`;
+    $("practice-inaccuracies-status").hidden = settings.extraInaccuracies === 0;
     $("auto-reply").checked = settings.auto;
-    $("auto-reply").disabled = busy;
+    $("auto-reply").disabled = busy || screenshotImportOpen;
     for (const color of ["white", "black"]) {
       $(`solver-${color}`).classList.toggle("active", settings.solver === color);
       $(`solver-${color}`).setAttribute("aria-pressed", String(settings.solver === color));
-      $(`solver-${color}`).disabled = busy;
+      $(`solver-${color}`).disabled = busy || screenshotImportOpen;
     }
     for (const button of document.querySelectorAll("[data-seconds]")) {
       const active = Number(button.dataset.seconds) === settings.seconds;
@@ -335,7 +407,7 @@
     await promise;
   }
 
-  async function transition(fetchPosition, { auto = true, preserveAnalysis = false } = {}) {
+  async function transition(fetchPosition, { auto = true, preserveAnalysis = false, onCommit = null } = {}) {
     if (busy) return false;
     busy = true;
     const ticket = ++operation;
@@ -347,6 +419,8 @@
       const next = await fetchPosition();
       if (ticket !== operation) return false;
       state = next;
+      reconcilePractice();
+      onCommit?.();
       statusOverride = "";
       autoPaused = !auto;
       if (!preserveAnalysis) analysis = null;
@@ -369,7 +443,9 @@
     const position = context();
     const previous = analysis;
     if (engine && previous) previous.applied = true;
-    const success = await transition(() => api("/api/move", { ...position, move }), { preserveAnalysis: engine });
+    const success = await transition(() => api("/api/move", { ...position, move }), { preserveAnalysis: engine, onCommit: () => {
+      if (engine) commitPracticeMove(previous, position, move);
+    } });
     if (!success && previous) {
       previous.applied = false;
       render();
@@ -379,18 +455,19 @@
   }
 
   function maybeAutomaticallyReply() {
-    if (state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && settings.auto && state.turn === settings.solver && !state.outcome) {
+    if (state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && !screenshotImportOpen && !$("new-game-dialog").open && settings.auto && state.turn === settings.solver && !state.outcome) {
       void analyzePosition(true);
     }
   }
 
   async function analyzePosition(autoPlay) {
-    if (!state || busy || activeSearch || stoppingSearch || state.outcome || !available()) return;
+    if (!state || busy || activeSearch || stoppingSearch || state.outcome || !available() || screenshotImportOpen || $("new-game-dialog").open) return;
     autoPaused = false;
     statusOverride = "";
     selected = null;
     const id = `knightfall-${Date.now()}-${++searchSerial}`;
     const fen = state.fen;
+    const position = context();
     const ticket = operation;
     const start = performance.now();
     const search = { id, fen, autoPlay, timer: null };
@@ -403,7 +480,9 @@
     }, 100);
     render();
     try {
-      search.pending = api("/api/analyze", { ...context(), seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id });
+      const practice = state.turn === settings.solver;
+      const practiceRequest = practice ? { practice: { target: settings.extraInaccuracies, startPly: practiceLedger.startPly, events: practiceLedger.events.map((event) => ({ ...event })) } } : {};
+      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: practice ? settings.strength : 100, forgiving: practice && settings.forgiving, ...practiceRequest });
       const response = await search.pending;
       if (activeSearch !== search || ticket !== operation || state.fen !== fen || response.requestId !== id || response.positionFen !== fen) return;
       clearInterval(search.timer);
@@ -414,7 +493,7 @@
         render();
         return;
       }
-      analysis = { ...response, applied: false };
+      analysis = { ...response, positionContext: position, applied: false };
       if (autoPlay && settings.auto && state.turn === settings.solver && response.bestMove) {
         render();
         await makeMove(response.bestMove, { engine: true });
@@ -527,8 +606,80 @@
     await cancelSearch();
     render();
   });
-  $("new-game").addEventListener("click", () => {
-    void transition(() => api("/api/position", { moves: [] }));
+  function renderGameStrength() {
+    const strength = Number($("game-strength").value);
+    $("game-strength-value").value = `${strength}%`;
+    $("game-strength").setAttribute("aria-valuetext", `${strength}%${strength === 100 ? ", full strength" : " strength"}`);
+  }
+
+  async function openNewGame() {
+    if (busy || $("new-game-dialog").open) return;
+    previousAutoPaused = autoPaused;
+    autoPaused = true;
+    $("promotion-dialog").close();
+    $("game-color").value = settings.solver === "black" ? "white" : "black";
+    $("game-strength").value = gameConfigured ? settings.strength : 70;
+    $("game-forgiving").checked = settings.forgiving;
+    $("game-inaccuracies").value = String(settings.extraInaccuracies);
+    $("new-game-error").hidden = true;
+    $("new-game-dialog").returnValue = "";
+    renderGameStrength();
+    $("new-game-dialog").showModal();
+    await cancelSearch();
+    render();
+    if (!$("new-game-dialog").open) maybeAutomaticallyReply();
+  }
+
+  $("new-game").addEventListener("click", () => { void openNewGame(); });
+  $("close-new-game").addEventListener("click", () => {
+    if (!newGameSubmitting) $("new-game-dialog").close("cancelled");
+  });
+  $("new-game-dialog").addEventListener("cancel", (event) => {
+    if (newGameSubmitting) event.preventDefault();
+  });
+  $("new-game-dialog").addEventListener("close", () => {
+    if ($("new-game-dialog").returnValue !== "started") autoPaused = previousAutoPaused;
+    render();
+    maybeAutomaticallyReply();
+  });
+  $("game-strength").addEventListener("input", () => {
+    if (Number($("game-strength").value) === 100) $("game-forgiving").checked = false;
+    renderGameStrength();
+  });
+  $("game-forgiving").addEventListener("change", () => {
+    if ($("game-forgiving").checked && Number($("game-strength").value) === 100) $("game-strength").value = 90;
+    renderGameStrength();
+  });
+  $("new-game-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (busy || newGameSubmitting) return;
+    const draft = {
+      strength: Number($("game-strength").value),
+      forgiving: $("game-forgiving").checked && Number($("game-strength").value) < 100,
+      extraInaccuracies: Number($("game-inaccuracies").value),
+      solver: $("game-color").value === "white" ? "black" : "white",
+      flipped: $("game-color").value === "black",
+      auto: true,
+    };
+    newGameSubmitting = true;
+    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies"]) $(id).disabled = true;
+    $("new-game-error").hidden = true;
+    await transition(async () => {
+      try { return await api("/api/position", { moves: [] }); }
+      catch (error) {
+        $("new-game-error").textContent = error.message;
+        $("new-game-error").hidden = false;
+        throw error;
+      }
+    }, { onCommit: () => {
+      Object.assign(settings, draft);
+      resetPractice();
+      gameConfigured = true;
+      $("move-input").value = "";
+      $("new-game-dialog").close("started");
+    } });
+    newGameSubmitting = false;
+    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies"]) $(id).disabled = false;
   });
   $("undo").addEventListener("click", () => {
     if (!state?.moves.length || busy) return;
@@ -592,6 +743,60 @@
     $("import-dialog").showModal();
     $("import-text").focus();
   });
+  $("open-screenshot")?.addEventListener("click", async () => {
+    if (busy || screenshotImportOpen || !window.KnightfallScreenshot) return;
+    const wasPaused = autoPaused;
+    screenshotImportOpen = true;
+    autoPaused = true;
+    $("import-dialog").close();
+    $("promotion-dialog").close();
+    try {
+      window.KnightfallScreenshot.open({
+        strength: settings.strength,
+        forgiving: settings.forgiving,
+        extraInaccuracies: settings.extraInaccuracies,
+        onConfirm: async ({ fen, userSide, strength, forgiving, extraInaccuracies }) => {
+          if (!screenshotImportOpen || busy) throw new Error("Wait for the current operation, then try again.");
+          if (!["white", "black"].includes(userSide)) throw new Error("Choose which side you want to play.");
+          if (!Number.isInteger(strength) || strength < 10 || strength > 100 || typeof forgiving !== "boolean" || (strength === 100 && forgiving)) {
+            throw new Error("Choose a valid practice strength. Forgiving mode requires a value below 100%.");
+          }
+          if (![0, 1, 2].includes(extraInaccuracies)) throw new Error("Choose an extra-inaccuracy target of Off, 1, or 2.");
+          let importError;
+          const success = await transition(async () => {
+            try { return await api("/api/import", { fen }); }
+            catch (error) { importError = error; throw error; }
+          }, { onCommit: () => {
+            settings.solver = userSide === "white" ? "black" : "white";
+            settings.flipped = userSide === "black";
+            settings.strength = strength;
+            settings.forgiving = forgiving;
+            settings.extraInaccuracies = extraInaccuracies;
+            settings.auto = true;
+            resetPractice();
+            gameConfigured = true;
+            $("move-input").value = "";
+            notify("");
+          } });
+          if (!success) throw importError || new Error("The position could not be loaded. Try again.");
+        },
+        onClose: ({ loaded }) => {
+          screenshotImportOpen = false;
+          autoPaused = loaded ? false : wasPaused;
+          render();
+          maybeAutomaticallyReply();
+        },
+      });
+      await cancelSearch();
+      render();
+    } catch (error) {
+      screenshotImportOpen = false;
+      autoPaused = wasPaused;
+      notify(error.message || "Screenshot import could not open.", true);
+      render();
+      maybeAutomaticallyReply();
+    }
+  });
   $("close-import").addEventListener("click", () => $("import-dialog").close());
   for (const button of document.querySelectorAll("[data-import-type]")) {
     button.addEventListener("click", () => {
@@ -618,7 +823,7 @@
         $("import-error").hidden = false;
         throw error;
       }
-    });
+    }, { onCommit: () => { gameConfigured = true; resetPractice(); } });
     $("submit-import").disabled = false;
     if (success) { $("import-dialog").close(); $("import-text").value = ""; }
   });
@@ -676,17 +881,23 @@
       $("connection-label").textContent = "Local server unavailable";
       notify(results[0].reason.message, true, true);
     }
-    if (results[1].status === "fulfilled") state = results[1].value;
+    if (results[1].status === "fulfilled") {
+      state = results[1].value;
+      restorePractice(saved?.practice);
+    }
     else {
       try {
         state = await api("/api/position", { moves: [] });
+        resetPractice();
+        gameConfigured = false;
         notify("The saved game could not be restored. A fresh board is ready.", true);
       } catch (error) { notify(error.message, true, true); }
     }
     busy = false;
     save();
     render();
-    maybeAutomaticallyReply();
+    if (state && !gameConfigured) void openNewGame();
+    else maybeAutomaticallyReply();
   }
 
   void initialize();

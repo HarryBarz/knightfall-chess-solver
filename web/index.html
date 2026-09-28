@@ -3,10 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f2eb">
+  <meta name="theme-color" content="#302e2b">
   <meta name="description" content="A quiet workspace for powerful local chess analysis.">
   <title>Knightfall — Your chess analysis desk</title>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/workspace.css">
+  <link rel="stylesheet" href="/screenshot.css">
+  <script src="/coach.js" defer></script>
+  <script src="/screenshot-recognition.js" defer></script>
+  <script src="/screenshot.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -16,10 +21,11 @@
   </header>
 
   <main>
-    <div class="page-heading"><div><p class="eyebrow">A BETTER MOVE STARTS HERE</p><h1>Your analysis desk.</h1><p class="page-description">You make a move. Your engine finds the reply.</p></div><button id="new-game" class="button button-outline"><span aria-hidden="true">↻</span> New game</button></div>
+    <div class="page-heading"><div><p class="eyebrow">A BETTER MOVE STARTS HERE</p><h1>Harrison analysis desk.</h1><p class="page-description">You make a move. Your engine finds the reply.</p></div><button id="new-game" class="button button-outline"><span aria-hidden="true">↻</span> New game</button></div>
     <div id="message" class="message" role="status" hidden></div>
 
     <div class="workspace">
+      <div class="play-workspace">
       <section class="board-panel" aria-label="Chess board and game controls">
         <div class="player-row"><div class="player-info"><span class="player-icon" id="top-player-icon" aria-hidden="true">♚</span><div><strong id="top-player-name">Your engine</strong><span id="top-player-detail">Black · Stockfish</span></div></div><span id="top-player-badge" class="player-badge">ENGINE</span></div>
         <div class="board-frame"><div class="evaluation-rail" id="evaluation-rail" role="img" aria-label="Position evaluation is equal"><div id="evaluation-fill"></div><span id="evaluation-marker"></span></div><div id="board" class="board" role="group" aria-label="Interactive chess board" aria-busy="true"></div></div>
@@ -33,7 +39,7 @@
         <section class="analysis-card card" aria-labelledby="analysis-title">
           <div class="card-heading"><h2 id="analysis-title">The engine room</h2><span class="engine-tag" id="engine-tag">STOCKFISH</span></div>
           <div class="analysis-status"><span class="status-dot" id="thinking-dot"></span><span id="analysis-status" role="status" aria-live="polite">Getting ready</span><span id="elapsed" hidden>0.0s</span></div>
-          <div class="evaluation"><div><p class="label">WHITE’S EVALUATION</p><div class="evaluation-value" id="score">—</div></div><div class="best-move-block"><p class="label">BEST MOVE</p><div id="best-move" class="best-move">—</div></div></div>
+          <div class="evaluation"><div><p class="label">WHITE’S EVALUATION</p><div class="evaluation-value" id="score">—</div></div><div class="best-move-block"><p class="label" id="best-move-label">ENGINE MOVE</p><div id="best-move" class="best-move">—</div></div></div>
           <p id="analysis-caption" class="analysis-caption">Play the first move to start the conversation.</p>
           <div class="engine-stats"><div><span>Depth</span><strong id="depth">—</strong></div><div><span>Positions</span><strong id="nodes">—</strong></div><div><span>Time</span><strong id="analysis-time">—</strong></div></div>
           <div id="variations" class="variations" hidden></div>
@@ -41,19 +47,79 @@
         </section>
 
         <section class="settings-card card" aria-labelledby="settings-title"><div class="card-heading"><h2 id="settings-title">Make it yours</h2></div>
+          <div class="practice-setting"><span class="setting-label">Practice opponent</span><strong id="practice-summary">70% strength</strong><span id="practice-inaccuracies-status" class="subtle" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise." hidden></span></div>
           <div class="setting-row"><span class="setting-label" id="solver-color-label">Engine plays</span><div class="segmented" role="group" aria-labelledby="solver-color-label"><button id="solver-white" aria-pressed="false"><span aria-hidden="true">♔</span> White</button><button id="solver-black" class="active" aria-pressed="true"><span aria-hidden="true">♚</span> Black</button></div></div>
-          <label class="toggle-row" for="auto-reply"><span><strong>Automatic replies</strong><small>The engine plays its best move for you</small></span><span class="switch"><input type="checkbox" id="auto-reply" checked><span class="switch-track"></span></span></label>
+          <label class="toggle-row" for="auto-reply"><span><strong>Automatic replies</strong></span><span class="switch"><input type="checkbox" id="auto-reply" checked><span class="switch-track"></span></span></label>
           <div class="time-setting"><div class="setting-row"><label class="setting-label" id="time-label">Thinking time</label><span id="time-description" class="subtle">5 sec / move</span></div><div class="time-options" role="group" aria-labelledby="time-label"><button data-seconds="1" aria-pressed="false">1s</button><button data-seconds="5" class="active" aria-pressed="true">5s</button><button data-seconds="15" aria-pressed="false">15s</button><button data-seconds="30" aria-pressed="false">30s</button><button data-seconds="60" aria-pressed="false">1m</button><button data-seconds="120" aria-pressed="false">2m</button></div><p class="setting-help">Give complex positions a little more room.</p></div>
           <details class="advanced"><summary>Advanced engine settings <span aria-hidden="true">+</span></summary><div class="advanced-grid"><label>CPU threads<input id="threads" type="number" min="1" max="16" value="1"></label><label>Hash memory (MB)<input id="hash" type="number" min="16" max="2048" value="128"></label><label>Candidate lines<select id="multipv"><option value="1">1 · Strongest search</option><option value="2">2 lines</option><option value="3">3 lines</option></select></label></div><p class="setting-help">More threads use more CPU. One candidate line focuses all search on finding the best move.</p></details>
         </section>
 
         <section class="history-card card" aria-labelledby="history-title"><div class="card-heading"><h2 id="history-title">The game so far</h2><span class="subtle" id="move-count">0 moves</span></div><div class="history-head" aria-hidden="true"><span>#</span><span>White</span><span>Black</span></div><div id="history" class="history" aria-label="Move history"><p class="history-empty">Every good game starts with a first move.</p></div><div id="game-result" class="game-result" hidden></div></section>
       </aside>
+      </div>
+      <section id="coach-panel" class="coach-panel" aria-labelledby="coach-heading">
+        <div class="coach-heading"><div><h2 id="coach-heading">Move notes</h2><span id="coach-strength" class="subtle">70% strength</span></div><label class="coach-auto-label" for="coach-auto"><input id="coach-auto" type="checkbox" checked> Live notes</label></div>
+        <div class="coach-navigation"><button id="coach-prev" class="coach-icon-button" type="button" aria-label="Previous move" title="Previous move" disabled>&larr;</button><label class="sr-only" for="coach-move">Move to review</label><select id="coach-move" disabled><option>No moves yet</option></select><button id="coach-next" class="coach-icon-button" type="button" aria-label="Next move" title="Next move" disabled>&rarr;</button><button id="coach-refresh" class="coach-icon-button" type="button" aria-label="Refresh move notes" title="Refresh move notes" disabled>&#8635;</button></div>
+        <p id="coach-status" class="coach-status" role="status" aria-live="polite">Waiting for the first move</p>
+        <p id="coach-error" class="inline-error" role="alert" hidden></p>
+        <p id="coach-empty" class="coach-empty">No moves yet.</p>
+        <div id="coach-content" hidden>
+          <h3 id="coach-title"></h3>
+          <p id="coach-summary" class="coach-summary"></p>
+          <ul id="coach-reasons" class="coach-reasons"></ul>
+          <p id="coach-assessment" class="coach-assessment"></p>
+          <div class="coach-alternatives-section"><h3>Alternatives</h3><div id="coach-alternatives"></div></div>
+        </div>
+      </section>
     </div>
     <footer><span>KNIGHTFALL <span class="footer-divider">/</span> FIND YOUR NEXT MOVE.</span><p>Local analysis. Powered by Stockfish.</p></footer>
   </main>
 
-  <dialog id="import-dialog"><form id="import-form"><div class="dialog-heading"><h2>Start from a position</h2><button type="button" class="icon-button" id="close-import" aria-label="Close import dialog">×</button></div><p class="dialog-description">Paste a FEN position or a PGN game to continue from there.</p><div class="segmented import-type" role="group" aria-label="Import format"><button type="button" data-import-type="fen" class="active" aria-pressed="true">FEN position</button><button type="button" data-import-type="pgn" aria-pressed="false">PGN game</button></div><label class="sr-only" for="import-text">FEN or PGN text</label><textarea id="import-text" rows="7" spellcheck="false" placeholder="Paste your FEN here…" required></textarea><p id="import-error" class="inline-error" role="alert" hidden></p><button class="button button-primary" type="submit" id="submit-import">Load position <span aria-hidden="true">→</span></button></form></dialog>
+  <dialog id="new-game-dialog" aria-labelledby="new-game-title" aria-describedby="game-strength-note">
+    <form id="new-game-form">
+      <div class="dialog-heading"><h2 id="new-game-title">New practice game</h2><button type="button" class="icon-button" id="close-new-game" aria-label="Cancel new game" title="Cancel new game">&times;</button></div>
+      <div class="game-color-row"><label for="game-color">Your side</label><select id="game-color"><option value="white">White</option><option value="black">Black</option></select></div>
+      <div class="game-strength-heading"><label for="game-strength">Opponent strength</label><output id="game-strength-value" for="game-strength">70%</output></div>
+      <input id="game-strength" type="range" min="10" max="100" step="1" value="70" aria-describedby="game-strength-note">
+      <div class="strength-scale" aria-hidden="true"><span>10% &middot; Easiest</span><span>100% &middot; Full strength</span></div>
+      <p id="game-strength-note" class="game-note">Difficulty setting, not measured accuracy or a guaranteed result.</p>
+      <label class="toggle-row game-forgiving-row" for="game-forgiving"><span><strong>Forgiving opponent</strong><small id="game-forgiving-note">Extra help: lower strength, no guaranteed win.</small></span><span class="switch"><input type="checkbox" id="game-forgiving" aria-describedby="game-forgiving-note"><span class="switch-track"></span></span></label>
+      <div class="game-inaccuracies-row"><label for="game-inaccuracies">Extra practice inaccuracies</label><select id="game-inaccuracies" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise."><option value="0">Off</option><option value="1">1 (target)</option><option value="2">2 (target)</option></select></div>
+      <p id="new-game-error" class="inline-error" role="alert" hidden></p>
+      <button id="start-game" class="button button-primary" type="submit">Start game <span aria-hidden="true">&rarr;</span></button>
+    </form>
+  </dialog>
+  <dialog id="import-dialog"><form id="import-form"><div class="dialog-heading"><h2>Start from a position</h2><button type="button" class="icon-button" id="close-import" aria-label="Close import dialog">×</button></div><p class="dialog-description">Paste a FEN position or a PGN game to continue from there.</p><button type="button" id="open-screenshot" class="button button-outline screenshot-entry"><span aria-hidden="true">&#9638;</span> Import screenshot</button><div class="segmented import-type" role="group" aria-label="Import format"><button type="button" data-import-type="fen" class="active" aria-pressed="true">FEN position</button><button type="button" data-import-type="pgn" aria-pressed="false">PGN game</button></div><label class="sr-only" for="import-text">FEN or PGN text</label><textarea id="import-text" rows="7" spellcheck="false" placeholder="Paste your FEN here…" required></textarea><p id="import-error" class="inline-error" role="alert" hidden></p><button class="button button-primary" type="submit" id="submit-import">Load position <span aria-hidden="true">→</span></button></form></dialog>
+  <dialog id="screenshot-dialog" aria-labelledby="screenshot-title">
+    <form id="screenshot-form">
+      <div class="dialog-heading"><h2 id="screenshot-title">Import a screenshot</h2><button type="button" class="icon-button" id="close-screenshot" aria-label="Cancel screenshot import" title="Cancel screenshot import">&times;</button></div>
+      <div class="screenshot-file-row"><label for="screenshot-file">Board screenshot<input id="screenshot-file" type="file" accept="image/png,image/jpeg,image/webp"></label><span class="subtle">PNG, JPEG or WebP &middot; Up to 10 MB</span></div>
+      <p id="screenshot-status" role="status" aria-live="polite">No screenshot selected.</p>
+      <p id="screenshot-error" class="inline-error" role="alert" hidden></p>
+      <div id="screenshot-recovery" class="screenshot-recovery" hidden><button id="screenshot-retry" type="button" class="button button-outline"><span aria-hidden="true">&#8635;</span> Retry recognition</button><button id="screenshot-manual" type="button" class="button button-outline">Set up manually</button></div>
+      <div id="screenshot-review" hidden>
+        <div class="screenshot-columns">
+          <section class="screenshot-source" aria-labelledby="screenshot-source-title">
+            <h3 id="screenshot-source-title">Original screenshot</h3><div class="screenshot-preview"><img id="screenshot-preview" alt="Original chess board screenshot"></div>
+            <div class="screenshot-fields"><label for="screenshot-bottom">Screenshot bottom side<select id="screenshot-bottom"><option value="white">White</option><option value="black">Black</option></select></label><label for="screenshot-turn">Side to move<select id="screenshot-turn" required><option value="">Select a side</option><option value="white">White</option><option value="black">Black</option></select></label><label for="screenshot-side">Your side<select id="screenshot-side" required><option value="">Select a side</option><option value="white">White</option><option value="black">Black</option></select></label></div>
+            <fieldset class="screenshot-castling"><legend>Castling rights remaining</legend><label><input id="screenshot-castling-K" type="checkbox" disabled> White kingside</label><label><input id="screenshot-castling-Q" type="checkbox" disabled> White queenside</label><label><input id="screenshot-castling-k" type="checkbox" disabled> Black kingside</label><label><input id="screenshot-castling-q" type="checkbox" disabled> Black queenside</label></fieldset>
+            <details class="screenshot-advanced"><summary>Position details</summary><div class="screenshot-fields"><label for="screenshot-ep">En passant target<select id="screenshot-ep"><option value="-">None</option></select></label><label for="screenshot-halfmove">Halfmove clock<input id="screenshot-halfmove" type="number" min="0" max="100000" step="1" value="0" required></label><label for="screenshot-fullmove">Move number<input id="screenshot-fullmove" type="number" min="1" max="100000" step="1" value="1" required></label></div></details>
+          </section>
+          <section class="screenshot-position" aria-labelledby="screenshot-position-title">
+            <div class="screenshot-position-heading"><h3 id="screenshot-position-title">Position to continue</h3><span id="screenshot-uncertain" class="screenshot-uncertain"></span></div>
+            <div id="screenshot-board" class="screenshot-board" role="group" aria-label="Editable imported chess position"></div>
+            <div id="screenshot-palette" class="screenshot-palette" role="group" aria-label="Piece palette"></div>
+            <div id="screenshot-inventory" class="screenshot-inventory" aria-label="Pieces on the board"></div>
+          </section>
+        </div>
+        <div class="screenshot-practice"><div><div class="game-strength-heading"><label for="screenshot-strength">Opponent strength</label><output id="screenshot-strength-value" for="screenshot-strength">70%</output></div><input id="screenshot-strength" type="range" min="10" max="100" step="1" value="70"></div><label class="screenshot-forgiving" for="screenshot-forgiving"><input id="screenshot-forgiving" type="checkbox"> Forgiving opponent</label></div>
+        <div class="game-inaccuracies-row"><label for="screenshot-inaccuracies">Extra practice inaccuracies</label><select id="screenshot-inaccuracies" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise."><option value="0">Off</option><option value="1">1 (target)</option><option value="2">2 (target)</option></select></div>
+        <p class="screenshot-history-note">Move history and past castling moves cannot be recovered from an image.</p>
+        <label class="screenshot-confirmation" for="screenshot-reviewed"><input id="screenshot-reviewed" type="checkbox" required> I checked the pieces, side to move, and castling rights.</label>
+      </div>
+      <div class="screenshot-footer"><button id="screenshot-cancel" class="button button-outline" type="button">Cancel</button><button id="screenshot-confirm" class="button button-primary" type="submit" disabled>Continue position <span aria-hidden="true">&rarr;</span></button></div>
+    </form>
+  </dialog>
   <dialog id="promotion-dialog" aria-labelledby="promotion-title"><div class="dialog-heading"><h2 id="promotion-title">Choose your promotion</h2><button type="button" class="icon-button" id="close-promotion" aria-label="Cancel promotion">×</button></div><p class="dialog-description">Your pawn has earned an upgrade.</p><div id="promotion-options" class="promotion-options"></div></dialog>
   <noscript><div class="noscript">Knightfall needs JavaScript enabled to display the board and run analysis.</div></noscript>
 </body>
