@@ -98,6 +98,20 @@ try {
       });
     };
   })()`);
+  const assertOwnSideRecommendation = async (color, strength, forgiving) => {
+    const before = await evaluate(mainPosition);
+    const requestCount = await evaluate('window.analysisRequests.length');
+    assert.equal(await evaluate(`${savedSettings}.solver`), color === 'white' ? 'black' : 'white');
+    await click('#analyze');
+    await until(`window.analysisRequests.length === ${requestCount + 1} && !document.querySelector('#play-best').hidden && !document.querySelector('#play-best').disabled && document.querySelector('#stop').hidden`);
+    const request = await evaluate('window.analysisRequests.at(-1)');
+    assert.equal(request.strength, strength, `${color} recommendations must use the selected strength`);
+    assert.equal(request.forgiving, forgiving, `${color} recommendations must use the selected forgiving mode`);
+    assert.equal(Object.hasOwn(request, 'practice'), false, 'Own-side suggestions must not request extra opponent mistakes');
+    assert.equal(await evaluate('document.querySelector("#best-move-label").textContent'), 'ENGINE MOVE');
+    assert.equal(await evaluate('document.querySelector("#play-best").textContent'), 'Play engine move');
+    assert.equal(await evaluate(mainPosition), before, 'Previewing an own-side recommendation must preserve the board and saved game');
+  };
   await call('Runtime.enable');
   await call('Log.enable');
   await call('Page.enable');
@@ -114,6 +128,7 @@ try {
   await startGame();
   assert.equal(await evaluate('document.querySelectorAll("#board img").length'), 32);
   await click('[data-seconds="1"]');
+  await assertOwnSideRecommendation('white', 70, false);
   await setInput('#move-input', 'e4');
   await evaluate('document.querySelector("#move-form").requestSubmit()');
   await until('document.querySelector("#history").textContent.includes("e4") && !document.querySelector("#stop").hidden');
@@ -217,6 +232,7 @@ try {
   assert.equal(await evaluate(`${savedSettings}.strength`), 90);
   assert.equal(await evaluate(`${savedSettings}.forgiving`), true);
   assert.equal(await evaluate('document.querySelector("#practice-summary").textContent.includes("90%")'), true);
+  await assertOwnSideRecommendation('black', 90, true);
   await until(coachReady);
   await evaluate('window.holdCoachResponses = true');
   await click('#coach-refresh');
@@ -256,10 +272,20 @@ try {
   await evaluate('document.querySelector("#import-form").requestSubmit()');
   await until('!document.querySelector("#import-dialog").open && document.querySelectorAll("#board img").length === 3');
   await click('[data-seconds="1"]');
+  await assertOwnSideRecommendation('white', 70, true);
+  await click('#new-game');
+  await until('document.querySelector("#new-game-dialog").open');
+  await setStrength(100);
+  await startGame();
+  await click('#import');
+  await setInput('#import-text', '7k/8/5KQ1/8/8/8/8/8 w - - 0 1');
+  await evaluate('document.querySelector("#import-form").requestSubmit()');
+  await until('!document.querySelector("#import-dialog").open && document.querySelectorAll("#board img").length === 3');
   await click('#analyze');
   await until('!document.querySelector("#play-best").hidden && !document.querySelector("#play-best").disabled');
-  assert.equal(await evaluate('window.analysisRequests.at(-1).strength'), 100, 'Human-side analysis remains full strength');
+  assert.equal(await evaluate('window.analysisRequests.at(-1).strength'), 100, 'Full-strength recommendations require selecting full strength');
   assert.equal(await evaluate('window.analysisRequests.at(-1).forgiving'), false);
+  assert.equal(await evaluate('document.querySelector("#best-move-label").textContent'), 'BEST MOVE');
   await click('#play-best');
   await until('document.querySelector("#game-result").textContent.toLowerCase().includes("checkmate")');
   await until(`${coachReady} && document.querySelector('#coach-status').textContent.includes('Checkmate')`);
@@ -322,8 +348,17 @@ try {
   })()`);
   await reload();
   await until('document.querySelectorAll(".history-move").length === 4 && !document.querySelector("#submit-move").disabled');
-  assert.equal(await evaluate(`${savedSettings}.strength`), 100, 'Invalid saved strength must normalize to the legacy full-strength default');
-  assert.equal(await evaluate(`${savedSettings}.forgiving`), false, 'Invalid saved settings must not combine full strength with forgiving mode');
+  assert.equal(await evaluate(`${savedSettings}.strength`), 70, 'Invalid saved strength must return to the default difficulty, not full strength');
+  assert.equal(await evaluate(`${savedSettings}.forgiving`), false, 'Invalid saved strength must clear the old forgiving setting');
+  await recordAnalysis();
+  await assertOwnSideRecommendation('white', 70, false);
+  await evaluate(`(() => {
+    const saved = JSON.parse(localStorage.getItem('knightfall.workspace.v1'));
+    delete saved.settings.strength;
+    localStorage.setItem('knightfall.workspace.v1', JSON.stringify(saved));
+  })()`);
+  await reload();
+  assert.equal(await evaluate(`${savedSettings}.strength`), 70, 'Legacy saved games without a strength setting must use the default difficulty');
 
   // Keep real position/move validation while making deliberate engine proposals deterministic.
   const savedWorkspace = 'JSON.parse(localStorage.getItem("knightfall.workspace.v1"))';
@@ -414,7 +449,9 @@ try {
   assert.equal(await evaluate(`${savedWorkspace}.practice.events.length`), 0, 'Undoing a deliberate move must restore its allowance');
   await practicePreview();
   assert.equal(await evaluate('Object.hasOwn(window.practiceRequests.at(-1), "practice")'), false, 'Human-side analysis must never request extra mistakes');
-  assert.equal(await evaluate('window.practiceRequests.at(-1).strength'), 100);
+  assert.equal(await evaluate('window.practiceRequests.at(-1).strength'), 70, 'Changing engine sides must preserve the chosen recommendation strength');
+  assert.equal(await evaluate('window.practiceRequests.at(-1).forgiving'), false);
+  assert.equal(await evaluate('document.querySelector("#best-move-label").textContent'), 'ENGINE MOVE');
   await click('#solver-black');
   await evaluate('window.practiceHold = true');
   await click('#analyze');
@@ -459,7 +496,7 @@ try {
   assert.equal(await evaluate('document.querySelector("#play-best").textContent'), 'Play engine move');
   assert.equal(await evaluate('document.documentElement.scrollWidth <= innerWidth'), true, 'The extra-inaccuracy counter must fit mobile');
   assert.deepEqual(errors, [], 'Browser console should have no runtime/CSP errors');
-  console.log('PASS: new-game setup/cancel, practice strength/forgiving configuration, full-strength option, settings persistence, board clicks, automatic black reply, undo pair, flip, automatic white opening, cancellation/restart, stale-result prevention, FEN/PGN import, underpromotion, forced mate, reload persistence, written coach notes, manual review without board mutation, coach strength profiles, late review suppression after undo/new game, single-board desktop and mobile layout, extra-inaccuracy setup/preview/commit/failure/cancellation/undo/reload/side switch/import reset and full-strength deliberate-move labels.');
+  console.log('PASS: new-game setup/cancel, practice strength/forgiving configuration, reduced White/Black own-side recommendations and labels, restored recommendation settings, full-strength option, settings persistence, board clicks, automatic black reply, undo pair, flip, automatic white opening, cancellation/restart, stale-result prevention, FEN/PGN import, underpromotion, forced mate at selected full strength, reload persistence, written coach notes, manual review without board mutation, coach strength profiles, late review suppression after undo/new game, single-board desktop and mobile layout, extra-inaccuracy setup/preview/commit/failure/cancellation/undo/reload/side switch/import reset and full-strength deliberate-move labels.');
   console.log('Screenshots: artifacts/desktop.png, artifacts/desktop-1280.png, artifacts/desktop-1920.png, artifacts/mobile.png, artifacts/new-game-desktop.png, artifacts/new-game-mobile.png, artifacts/new-game-narrow.png');
 } finally {
   client?.close();

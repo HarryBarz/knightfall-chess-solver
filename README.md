@@ -19,12 +19,12 @@ Setup creates a local Python environment, downloads the pinned official Stockfis
 
 ## Play
 
-1. On first launch and each **New game**, choose your side and **Opponent strength** from 10% to 100%. The initial default is 70%; later games remember your choice. Choose **Forgiving opponent** for an easier practice game, then **Start game**. Cancelling keeps your current board and settings.
+1. On first launch and each **New game**, choose your side and **Engine strength** from 10% to 100%. The initial default is 70%; later games remember your choice. Missing or invalid saved strength also defaults to 70%. This setting controls both the opponent and suggestions for your moves. Choose **Forgiving mode** to further lower strength for both sides, then **Start game**. Cancelling keeps your current board and settings.
 2. Enter your move by clicking its piece and destination, or typing SAN (`Nf3`, `O-O`) or UCI (`g1f3`).
 3. With **Automatic replies** enabled, the engine plays its reply on this board at the selected strength. If you choose Black, the engine makes White's opening move.
 4. Choose a thinking time from 1 second to 2 minutes. For difficult positions, give it 30–120 seconds.
 
-Turn automatic replies off for manual analysis of either side. **Analyze position** calculates a move: the engine's side uses the current practice settings, while your side gets full-strength analysis. **Play engine move** (or **Play best move** at full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
+Turn automatic replies off for manual analysis of either side. **Analyze position** calculates a move using your selected strength and forgiving setting for either side. Your-side suggestions do not automatically switch to full strength. **Play engine move** (or **Play best move** at full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
 
 You can flip the board, import a FEN position or PGN game, copy the current FEN, and export PGN. Games and settings are saved in this browser's local storage. Imported PGN keeps repetition history; FEN only contains the current position and cannot recover earlier repetitions. The app supports standard chess.
 
@@ -54,7 +54,7 @@ Review uses a separate Stockfish process with one thread, 32 MB hash, and a shor
 
 The percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
 
-Strength maps to Stockfish's built-in `Skill Level` using `floor((strength - 10) * 20 / 90)`: 10% selects level 0, 70% level 13, 80% level 15, 90% level 17, and 100% level 20. **Forgiving opponent** caps that level at 4; it does not force a loss. Selecting 100% turns forgiving mode off, and enabling forgiving mode at 100% changes the setting to 90%. Stockfish can remain challenging even at low levels.
+Strength maps to Stockfish's built-in `Skill Level` using `floor((strength - 10) * 20 / 90)`: 10% selects level 0, 70% level 13, 80% level 15, 90% level 17, and 100% level 20. **Forgiving mode** caps that level at 4 for both automatic replies and move suggestions; it does not force a loss. Selecting 100% turns forgiving mode off, and enabling forgiving mode at 100% changes the setting to 90%. Stockfish can remain challenging even at low levels and can still choose the best move in individual positions.
 
 **Extra practice inaccuracies** is optional in new-game and screenshot setup: Off, 1 target, or 2 target. It keeps the chosen strength and forgiving setting and aims to add up to that many deliberate inaccuracies for local practice. These are additional opportunities, not a cap on all mistakes: reduced-strength play can make other errors. Short games or positions without suitable choices can finish below the target. It does not simulate a human rating or establish a fair-play outcome.
 

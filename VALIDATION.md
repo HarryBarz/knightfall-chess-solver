@@ -2,6 +2,31 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Selected-strength suggestions (2026-09-29)
+
+Executed with native Stockfish and headless Chrome on macOS:
+
+```sh
+node scripts/browser_smoke.mjs http://127.0.0.1:8881
+node scripts/screenshot_smoke.mjs http://127.0.0.1:8881
+```
+
+Both passed. The browser suite verified White-side suggestions at 70%, Black-side
+suggestions at 90% with forgiving mode after reload, and imported White-side
+suggestions at 70% with forgiving mode. Requests retained the selected settings,
+results displayed `ENGINE MOVE`, and previews preserved the board and saved game.
+Own-side suggestions did not request the opponent's extra-inaccuracy budget.
+Missing and invalid saved strength defaulted to 70%; selecting 100% explicitly
+still produced the full-strength label and completed the forced-mate regression.
+The existing playing, notes, cancellation, persistence, budget and layout checks
+also passed. Screenshot checks executed the real recognition model and legal
+Stockfish replies. Desktop and narrow-mobile new-game captures were visually
+inspected. JavaScript syntax and `git diff --check` passed.
+
+This supersedes the earlier full-strength own-side behavior recorded below.
+Reduced strength can still select the best move in individual positions; these
+checks verify settings and behavior, not a measured accuracy percentage.
+
 ## Engine provenance
 
 Downloaded `stockfish-macos-universal.tar.gz` from the official `sf_19` GitHub release. Verified SHA-256:
@@ -83,7 +108,7 @@ A separate unrestricted Stockfish process assessed the distinct selected moves i
 
 This run demonstrated weaker average move selection at reduced settings. The differences were small, and settings did not rank in order in every individual position. Eighteen moves per profile across only six opening positions is a limited, correlated sample; it does not establish statistical significance, whole-game strength, win rate, or any precise mapping from percentages to accuracy. Stockfish's weakening is randomized, so later runs may differ.
 
-Raw FENs, selected moves, judge evaluations, node counts, UCI option commands/configuration, environment, and engine checksum are recorded in `artifacts/strength-check.json`. The script permits rerunning the same experiment. The app applies practice strength on the engine's turn; analysis of the user's turn remains unrestricted.
+Raw FENs, selected moves, judge evaluations, node counts, UCI option commands/configuration, environment, and engine checksum are recorded in `artifacts/strength-check.json`. The script permits rerunning the same experiment. At the time of this run, the app applied practice strength only on the engine's turn; the 2026-09-29 update above extends the selected strength to suggestions for either side.
 
 ## Browser integration
 

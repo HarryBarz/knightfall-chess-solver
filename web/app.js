@@ -14,7 +14,7 @@
     threads: validInteger(saved?.settings?.threads, 1, 512, 1),
     hashMb: validInteger(saved?.settings?.hashMb, 16, 65536, 128),
     multiPv: validInteger(saved?.settings?.multiPv, 1, 3, 1),
-    strength: validInteger(saved?.settings?.strength, 10, 100, saved ? 100 : 70),
+    strength: validInteger(saved?.settings?.strength, 10, 100, 70),
     forgiving: saved?.settings?.forgiving === true && validInteger(saved?.settings?.strength, 10, 100, 100) < 100,
     extraInaccuracies: [0, 1, 2].includes(saved?.settings?.extraInaccuracies) ? saved.settings.extraInaccuracies : 0,
     flipped: saved?.settings?.flipped === true,
@@ -482,7 +482,7 @@
     try {
       const practice = state.turn === settings.solver;
       const practiceRequest = practice ? { practice: { target: settings.extraInaccuracies, startPly: practiceLedger.startPly, events: practiceLedger.events.map((event) => ({ ...event })) } } : {};
-      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: practice ? settings.strength : 100, forgiving: practice && settings.forgiving, ...practiceRequest });
+      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: settings.strength, forgiving: settings.forgiving, ...practiceRequest });
       const response = await search.pending;
       if (activeSearch !== search || ticket !== operation || state.fen !== fen || response.requestId !== id || response.positionFen !== fen) return;
       clearInterval(search.timer);

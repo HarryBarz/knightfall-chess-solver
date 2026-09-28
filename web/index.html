@@ -47,7 +47,7 @@
         </section>
 
         <section class="settings-card card" aria-labelledby="settings-title"><div class="card-heading"><h2 id="settings-title">Make it yours</h2></div>
-          <div class="practice-setting"><span class="setting-label">Practice opponent</span><strong id="practice-summary">70% strength</strong><span id="practice-inaccuracies-status" class="subtle" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise." hidden></span></div>
+          <div class="practice-setting"><span class="setting-label">Engine strength</span><strong id="practice-summary">70% strength</strong><span id="practice-inaccuracies-status" class="subtle" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise." hidden></span></div>
           <div class="setting-row"><span class="setting-label" id="solver-color-label">Engine plays</span><div class="segmented" role="group" aria-labelledby="solver-color-label"><button id="solver-white" aria-pressed="false"><span aria-hidden="true">♔</span> White</button><button id="solver-black" class="active" aria-pressed="true"><span aria-hidden="true">♚</span> Black</button></div></div>
           <label class="toggle-row" for="auto-reply"><span><strong>Automatic replies</strong></span><span class="switch"><input type="checkbox" id="auto-reply" checked><span class="switch-track"></span></span></label>
           <div class="time-setting"><div class="setting-row"><label class="setting-label" id="time-label">Thinking time</label><span id="time-description" class="subtle">5 sec / move</span></div><div class="time-options" role="group" aria-labelledby="time-label"><button data-seconds="1" aria-pressed="false">1s</button><button data-seconds="5" class="active" aria-pressed="true">5s</button><button data-seconds="15" aria-pressed="false">15s</button><button data-seconds="30" aria-pressed="false">30s</button><button data-seconds="60" aria-pressed="false">1m</button><button data-seconds="120" aria-pressed="false">2m</button></div><p class="setting-help">Give complex positions a little more room.</p></div>
@@ -79,11 +79,11 @@
     <form id="new-game-form">
       <div class="dialog-heading"><h2 id="new-game-title">New practice game</h2><button type="button" class="icon-button" id="close-new-game" aria-label="Cancel new game" title="Cancel new game">&times;</button></div>
       <div class="game-color-row"><label for="game-color">Your side</label><select id="game-color"><option value="white">White</option><option value="black">Black</option></select></div>
-      <div class="game-strength-heading"><label for="game-strength">Opponent strength</label><output id="game-strength-value" for="game-strength">70%</output></div>
+      <div class="game-strength-heading"><label for="game-strength">Engine strength</label><output id="game-strength-value" for="game-strength">70%</output></div>
       <input id="game-strength" type="range" min="10" max="100" step="1" value="70" aria-describedby="game-strength-note">
       <div class="strength-scale" aria-hidden="true"><span>10% &middot; Easiest</span><span>100% &middot; Full strength</span></div>
-      <p id="game-strength-note" class="game-note">Difficulty setting, not measured accuracy or a guaranteed result.</p>
-      <label class="toggle-row game-forgiving-row" for="game-forgiving"><span><strong>Forgiving opponent</strong><small id="game-forgiving-note">Extra help: lower strength, no guaranteed win.</small></span><span class="switch"><input type="checkbox" id="game-forgiving" aria-describedby="game-forgiving-note"><span class="switch-track"></span></span></label>
+      <p id="game-strength-note" class="game-note">Sets opponent difficulty and your move suggestions. Not measured accuracy.</p>
+      <label class="toggle-row game-forgiving-row" for="game-forgiving"><span><strong>Forgiving mode</strong><small id="game-forgiving-note">Further lowers strength for both sides.</small></span><span class="switch"><input type="checkbox" id="game-forgiving" aria-describedby="game-forgiving-note"><span class="switch-track"></span></span></label>
       <div class="game-inaccuracies-row"><label for="game-inaccuracies">Extra practice inaccuracies</label><select id="game-inaccuracies" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise."><option value="0">Off</option><option value="1">1 (target)</option><option value="2">2 (target)</option></select></div>
       <p id="new-game-error" class="inline-error" role="alert" hidden></p>
       <button id="start-game" class="button button-primary" type="submit">Start game <span aria-hidden="true">&rarr;</span></button>
@@ -112,7 +112,7 @@
             <div id="screenshot-inventory" class="screenshot-inventory" aria-label="Pieces on the board"></div>
           </section>
         </div>
-        <div class="screenshot-practice"><div><div class="game-strength-heading"><label for="screenshot-strength">Opponent strength</label><output id="screenshot-strength-value" for="screenshot-strength">70%</output></div><input id="screenshot-strength" type="range" min="10" max="100" step="1" value="70"></div><label class="screenshot-forgiving" for="screenshot-forgiving"><input id="screenshot-forgiving" type="checkbox"> Forgiving opponent</label></div>
+        <div class="screenshot-practice"><div><div class="game-strength-heading"><label for="screenshot-strength">Engine strength</label><output id="screenshot-strength-value" for="screenshot-strength">70%</output></div><input id="screenshot-strength" type="range" min="10" max="100" step="1" value="70"></div><label class="screenshot-forgiving" for="screenshot-forgiving"><input id="screenshot-forgiving" type="checkbox"> Forgiving mode</label></div>
         <div class="game-inaccuracies-row"><label for="screenshot-inaccuracies">Extra practice inaccuracies</label><select id="screenshot-inaccuracies" title="Targeted extra mistakes only. Current difficulty can cause additional mistakes; suitable positions may not arise."><option value="0">Off</option><option value="1">1 (target)</option><option value="2">2 (target)</option></select></div>
         <p class="screenshot-history-note">Move history and past castling moves cannot be recovered from an image.</p>
         <label class="screenshot-confirmation" for="screenshot-reviewed"><input id="screenshot-reviewed" type="checkbox" required> I checked the pieces, side to move, and castling rights.</label>
