@@ -451,7 +451,7 @@
     boardKey = "";
     contentKey = "";
     $("review-strength").value = snapshot.reviewStrength === 100 || snapshot.reviewStrength === "full" ? "full" : "match";
-    $("review-strength").querySelector('[value="match"]').textContent = `Match strength · ${Number(snapshot.strength) || 70}%`;
+    $("review-strength").querySelector('[value="match"]').textContent = `${snapshot.opponentStyle === "target-85-90" ? "Suggestion strength" : "Match strength"} · ${Number(snapshot.strength) || 70}%`;
     const result = snapshot.outcome ? `${snapshot.outcome.result || "Match finished"}${snapshot.outcome.reason ? ` · ${snapshot.outcome.reason}` : ""}` : "Match in progress";
     $("review-match-description").textContent = `${result} · ${snapshot.moves.length} recorded turns · You played ${snapshot.solver === "white" ? "Black" : "White"}`;
     $("review-overview-title").textContent = snapshot.moves.length ? "Every move, with a reason." : "Your starting position.";

@@ -121,6 +121,8 @@ try {
   assert.equal(await evaluate('document.querySelector("#game-strength").value'), '70');
   assert.equal(await evaluate('document.querySelector("#game-forgiving").checked'), false);
   assert.equal(await evaluate('document.querySelector("#game-color").value'), 'white');
+  await setInput('#game-opponent-style', 'classic');
+  await evaluate('document.querySelector("#game-opponent-style").dispatchEvent(new Event("change", { bubbles: true }))');
   await mkdir('artifacts', { recursive: true });
   const setupScreenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
   await writeFile('artifacts/new-game-desktop.png', Buffer.from(setupScreenshot.data, 'base64'));

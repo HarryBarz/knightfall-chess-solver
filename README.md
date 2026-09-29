@@ -19,12 +19,12 @@ Setup creates a local Python environment, downloads the pinned official Stockfis
 
 ## Play
 
-1. On first launch and each **New game**, choose your side and **Engine strength** from 10% to 100%. The initial default is 70%; later games remember your choice. Missing or invalid saved strength also defaults to 70%. This setting controls both the opponent and suggestions for your moves. Choose **Forgiving mode** to further lower strength for both sides, then **Start game**. Cancelling keeps your current board and settings.
+1. On first launch and each **New game**, choose your side and practice opponent. **Target 85–90% local accuracy** is the default. It chooses actual moves toward that range while allowing wins and losses; individual reports can finish outside the range. **Your suggestion strength** (initially 70%) controls help for your own moves. Choose **Classic strength slider** to use that difficulty for both sides instead. **Forgiving mode** further lowers the sides controlled by the slider. Then **Start game**. Cancelling keeps your current board and settings.
 2. Enter your move by clicking its piece and destination, or typing SAN (`Nf3`, `O-O`) or UCI (`g1f3`).
-3. With **Automatic replies** enabled, the engine plays its reply on this board at the selected strength. If you choose Black, the engine makes White's opening move.
+3. With **Automatic replies** enabled, the opponent replies using the selected mode. If you choose Black, the engine makes White's opening move.
 4. Choose a thinking time from 1 second to 2 minutes. For difficult positions, give it 30–120 seconds.
 
-Turn automatic replies off for manual analysis of either side. **Analyze position** calculates a move using your selected strength and forgiving setting for either side. Your-side suggestions do not automatically switch to full strength. **Play engine move** (or **Play best move** at full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
+Turn automatic replies off for manual analysis of either side. **Analyze position** uses the opponent's selected mode on its turn and your suggestion strength on your turn. **Play engine move** (or **Play best move** for classic full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
 
 You can flip the board, import a FEN position or PGN game, copy the current FEN, and export PGN. Games and settings are saved in this browser's local storage. Imported PGN keeps repetition history; FEN only contains the current position and cannot recover earlier repetitions. The app supports standard chess.
 
@@ -34,7 +34,7 @@ Choose **Import**, then **Import screenshot**, to continue a local practice game
 
 Use a clear PNG, JPEG, or WebP screenshot containing the entire flat, two-dimensional board (up to 10 MB, 16 megapixels, and 8192 pixels per side). Recognition is not guaranteed across every piece theme, overlay, crop, or image quality. Physical boards and 3D pieces are not supported. Review all 64 squares and correct any misplaced or missing pieces before continuing, even when the model reports high confidence. A valid image that cannot be recognized can still be used as a reference for manual setup.
 
-Confirm the screenshot's orientation, whose turn it is, and which side you want to play. These are separate choices: a screenshot with Black at the bottom does not establish that Black is to move. Choose the practice strength, then continue against Stockfish from the confirmed position. Cancelling the draft does not replace your board or settings.
+Confirm the screenshot's orientation, whose turn it is, and which side you want to play. These are separate choices: a screenshot with Black at the bottom does not establish that Black is to move. Choose the opponent mode and suggestion strength, then continue against Stockfish from the confirmed position. Cancelling the draft does not replace your board or settings.
 
 A screenshot cannot recover earlier moves, repetitions, exact capture history, or castling rights. Castling starts disabled unless you explicitly enable the remaining rights; home-square king and rook placement alone does not prove those rights exist. En passant and move counters can be entered separately. The default counters start a new continuation from the imported position, not a reconstruction of the original game's history. Captured-piece displays are not required: the pieces still on the board determine the position.
 
@@ -192,9 +192,42 @@ while it is off or both side switches are off. A short search can return fewer
 turns than requested. The app explains observable patterns and conditional
 lines; it cannot know what either player was thinking.
 
-## Engine strength and evaluation
+## Opponent accuracy target
 
-The percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
+**Target 85–90% local accuracy** aims at the numeric score calculated by this
+app's v2 reviewer, not Chess.com CAPS2 or an Elo rating. It changes the moves the
+opponent plays; the independent after-match reviewer grades those moves normally.
+Winning and losing remain possible. Forced replies, mating lines, short games,
+and positions without suitable alternatives can finish outside the target.
+
+The opponent evaluates up to 24 candidates at full search strength, then chooses
+using the same centipawn-to-win-percentage and move-accuracy curves as the local
+report. A provisional forecast combines weighted and harmonic averages over
+its committed choices, aiming at 87.5. It uses searched before/after positions
+to estimate volatility; the later independent review can differ. A candidate
+must have an exact score at depth 8 or above, estimated move accuracy at least
+75, and lose no more than 200 centipawns from the best searched choice. These
+bounds prevent a run of forced strong moves from demanding a huge later error.
+Immediate mates, forced moves, and mate continuations retain the strong choice.
+If all suitable choices score above 95, the strongest choice is retained.
+
+Only successfully played opponent moves enter its feedback history. Previews,
+failed moves, cancelled searches, and late responses do not. Reload preserves
+history; undo trims it; a new game, successful import, or side change starts a
+fresh target history. Imported PGN starts targeting from the imported endpoint.
+Missing legacy opponent settings migrate to this mode. Selecting Classic is
+remembered. Extra practice inaccuracies belong to Classic and cannot be stacked
+with the target mode; the last Classic allowance setting is retained.
+
+The suggestion slider and forgiving setting continue to govern your own move
+suggestions. Reviews and accuracy reports remain independent. Selecting 100%
+suggestion strength does not turn off opponent targeting; select Classic for
+an unrestricted opponent. This is an adjustable Stockfish practice policy, not
+a model trained to imitate human players or a calibrated 800-rated player.
+
+## Classic engine strength and evaluation
+
+In **Classic strength slider** mode, the percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
 
 Strength maps to Stockfish's built-in `Skill Level` using `floor((strength - 10) * 20 / 90)`: 10% selects level 0, 70% level 13, 80% level 15, 90% level 17, and 100% level 20. **Forgiving mode** caps that level at 4 for both automatic replies and move suggestions; it does not force a loss. Selecting 100% turns forgiving mode off, and enabling forgiving mode at 100% changes the setting to 90%. Stockfish can remain challenging even at low levels and can still choose the best move in individual positions.
 
@@ -219,6 +252,8 @@ node scripts/screenshot_smoke.mjs
 node scripts/review_smoke.mjs
 node scripts/arrows_smoke.mjs
 node scripts/accuracy_smoke.mjs
+node scripts/target_accuracy_smoke.mjs
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python scripts/verify_accuracy_target.py --games 2 --max-plies 40
 ```
 
 The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, practice strength, forgiving mode, cancellation, recovery, and independent move reviews. Extra-inaccuracy checks cover candidate bounds, mate protection, budget/history validation and real-engine selection for both colors. Browser checks cover playing, written reviews, stale responses, extra-inaccuracy counter persistence and responsive layout. They require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
@@ -247,6 +282,7 @@ Package versions are pinned in `package-lock.json`. The build preserves the acco
 - `web/arrows.js`, `web/arrows.css`: optional White/Black learning arrows on playing and replay boards.
 - `web/review.js`, `web/review.css`: replay board, lesson navigation, and variation previews.
 - `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.
+- `target_accuracy.py`: bounded opponent move selection toward the local accuracy target and committed-history feedback.
 - `web/`: responsive browser interface, using plain HTML, CSS, and JavaScript.
 - `web/vendor/screenshot/`: self-hosted recognition model, WebAssembly runtime, and licenses, loaded only for screenshot import.
 - `scripts/build_screenshot_recognizer.mjs`: reproducible browser recognition bundle (Node/npm needed only to rebuild these assets).

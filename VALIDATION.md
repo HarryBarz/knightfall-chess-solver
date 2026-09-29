@@ -2,6 +2,64 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Opponent targeting 85–90% local accuracy (2026-09-29)
+
+Executed with native Stockfish 19, including independently reviewed actual move
+choices, rather than assigning an accuracy score from the difficulty slider:
+
+```sh
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python -m unittest discover -s tests -v
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python scripts/verify_accuracy_target.py --games 2 --max-plies 40 --output artifacts/accuracy-target-games.json
+node scripts/target_accuracy_smoke.mjs http://127.0.0.1:8877
+node scripts/browser_smoke.mjs http://127.0.0.1:8877
+node scripts/accuracy_smoke.mjs http://127.0.0.1:8877
+node scripts/screenshot_smoke.mjs http://127.0.0.1:8877
+```
+
+All **122 Python tests passed in 48.647s**. New deterministic and HTTP coverage
+checks actual weaker-move selection for both colors, true committed-history
+validation, imported Black starts, unscored/invalid input, forecast values
+outside the target, a lower bound on move quality, maximum pawn loss, forced
+replies, immediate mates, saturated positions, insufficient/bounded analysis,
+cancellation without a proposed event, and resetting Classic search strength
+after a full-reference target search.
+
+The reproducible native benchmark passed nine fixed-position checks. Four
+ordinary opening choices were independently graded **86.08, 87.58, 91.17, and
+81.47** in the initial fixture pass; the tactical position with no suitable
+weaker choice, the two immediate mates, and the two forced replies stayed at
+100. This deliberately demonstrates both target tracking and its limits.
+Fixture scores can vary between bounded native searches.
+
+Two games were played from the normal starting position, one with the target
+opponent as each color. Target searches used 1 second, one thread, 32 MB hash,
+and the production candidate policy. The other side used native skill 6 at
+0.08 seconds. Every recorded move was independently regraded by the production
+AccuracyService; whole-prefix totals used the unchanged browser v2 aggregator.
+
+| Target side | Recorded plies | Controller forecast | Independent local report |
+| --- | ---: | ---: | ---: |
+| White | 40 | 90.98 | 90.29 |
+| Black | 40 | 88.13 | 85.50 |
+
+Both games were **unfinished** at the cap. These are prefix scores, not final
+game outcomes, an Elo calibration, a win-rate measurement, or a guaranteed
+85–90 range. The small sample shows that the policy can select actual moves
+near the target while retaining sensible strong replies; it does not promise
+human-like play. Artifact `artifacts/accuracy-target-games.json` records the
+engine hash, settings, PGNs, selections, committed events, and all independent
+review rows. This benchmark completed in **114.096s**.
+
+The new target browser suite passed in **13.9s**: default target/Classic
+selection, native own-turn suggestion and opponent reply routing, actual event
+commitment, reload, preview-only analysis, failed moves, cancellation, undo,
+import and side resets, screenshot controls, invalid saved history, and
+strength-100 labels. Native selections are used first; deterministic proposals
+then exercise edge cases through real server position/move validation. The
+existing Classic gameplay suite, independent accuracy-report suite, and full
+screenshot-recognition/import suite also passed. The target desktop capture was visually inspected. The local app was
+restarted with the new default mode; the reviewer was not changed.
+
 ## Accuracy inflation correction, method v2 (2026-09-29)
 
 A supplied 48-ply PGN and Chess.com summary exposed a limitation not caught by

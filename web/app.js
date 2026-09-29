@@ -18,6 +18,7 @@
     strength: validInteger(saved?.settings?.strength, 10, 100, 70),
     forgiving: saved?.settings?.forgiving === true && validInteger(saved?.settings?.strength, 10, 100, 100) < 100,
     extraInaccuracies: [0, 1, 2].includes(saved?.settings?.extraInaccuracies) ? saved.settings.extraInaccuracies : 0,
+    opponentStyle: saved?.settings?.opponentStyle === "classic" ? "classic" : "target-85-90",
     flipped: saved?.settings?.flipped === true,
   };
   let gameConfigured = saved?.gameConfigured === true || Boolean(saved?.moves?.length);
@@ -29,6 +30,7 @@
   let lastMatch = readLastMatch();
   let state = null;
   let practiceLedger = null;
+  let accuracyTargetLedger = null;
   let health = null;
   let busy = true;
   let selected = null;
@@ -54,7 +56,7 @@
   function save() {
     if (!state) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger, accuracyTarget: accuracyTargetLedger }));
     } catch { /* Private browsing and full storage must not interrupt a game. */ }
   }
 
@@ -75,12 +77,13 @@
     return {
       ...context(), history: state.history.map((move) => ({ ...move })), fen: state.fen,
       strength: settings.strength, forgiving: settings.forgiving, solver: settings.solver,
+      opponentStyle: settings.opponentStyle,
       flipped: settings.flipped, outcome: state.outcome ? { ...state.outcome } : null,
       reviewStrength: 100,
     };
   }
 
-  function matchKey(match) { return match ? JSON.stringify([match.initialFen, match.moves, match.solver, match.strength, match.forgiving]) : ""; }
+  function matchKey(match) { return match ? JSON.stringify([match.initialFen, match.moves, match.solver, match.strength, match.forgiving, match.opponentStyle]) : ""; }
 
   function rememberMatch() {
     if (!state || (!state.moves.length && !state.outcome)) return;
@@ -179,6 +182,58 @@
     practiceLedger.events.push({ ply: event.ply, move: event.move, lossCp: event.lossCp });
   }
 
+  function targetsAccuracy() { return settings.opponentStyle === "target-85-90"; }
+
+  function resetAccuracyTarget() {
+    accuracyTargetLedger = { ...context(), solver: settings.solver, startPly: state.moves.length, events: [] };
+  }
+
+  function validAccuracyTargetEvent(event, startPly, previousPly = -1) {
+    if (!event || !Number.isInteger(event.ply) || event.ply < startPly || event.ply <= previousPly || event.ply >= state.moves.length ||
+      typeof event.move !== "string" || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(event.move) || state.moves[event.ply] !== event.move ||
+      state.history[event.ply]?.turn !== settings.solver ||
+      ![event.before, event.after, event.accuracy].every((value) => Number.isFinite(value) && value >= 0 && value <= 100) || event.after > event.before) return false;
+    const expected = window.KnightfallAccuracyMath?.moveAccuracy(event.before, event.after);
+    return Number.isFinite(expected) && Math.abs(event.accuracy - expected) <= .000001;
+  }
+
+  function restoreAccuracyTarget(candidate) {
+    resetAccuracyTarget();
+    if (!targetsAccuracy() || !candidate || candidate.solver !== settings.solver || !Array.isArray(candidate.moves) || !samePosition(candidate, state) ||
+      !Number.isInteger(candidate.startPly) || candidate.startPly < 0 || candidate.startPly > state.moves.length ||
+      !Array.isArray(candidate.events) || candidate.events.length > state.moves.length) return;
+    let previousPly = -1;
+    for (const event of candidate.events) {
+      if (!validAccuracyTargetEvent(event, candidate.startPly, previousPly)) return;
+      previousPly = event.ply;
+    }
+    accuracyTargetLedger = { ...context(), solver: settings.solver, startPly: candidate.startPly,
+      events: candidate.events.map(({ ply, move, before, after, accuracy }) => ({ ply, move, before, after, accuracy })) };
+  }
+
+  function reconcileAccuracyTarget() {
+    if (!accuracyTargetLedger || accuracyTargetLedger.initialFen !== state.initialFen || accuracyTargetLedger.solver !== settings.solver) {
+      resetAccuracyTarget();
+      return;
+    }
+    let sharedPlies = 0;
+    while (sharedPlies < Math.min(accuracyTargetLedger.moves.length, state.moves.length) && accuracyTargetLedger.moves[sharedPlies] === state.moves[sharedPlies]) sharedPlies++;
+    accuracyTargetLedger.events = accuracyTargetLedger.events.filter((event) => event.ply < sharedPlies);
+    accuracyTargetLedger.startPly = Math.min(accuracyTargetLedger.startPly, sharedPlies);
+    accuracyTargetLedger.moves = [...state.moves];
+  }
+
+  function commitAccuracyTargetMove(previous, position, move) {
+    const proposal = previous?.accuracyTarget;
+    const event = proposal?.event;
+    if (!targetsAccuracy() || proposal?.enabled !== true || previous.cancelled || previous.bestMove !== move ||
+      previous.positionFen !== state.history.at(-1)?.beforeFen || !samePosition(previous.positionContext, position) ||
+      state.initialFen !== position.initialFen || state.moves.length !== position.moves.length + 1 ||
+      !position.moves.every((item, index) => state.moves[index] === item) || !event || event.ply !== position.moves.length || event.move !== move ||
+      !validAccuracyTargetEvent(event, accuracyTargetLedger.startPly, accuracyTargetLedger.events.at(-1)?.ply ?? -1)) return;
+    accuracyTargetLedger.events.push({ ply: event.ply, move: event.move, before: event.before, after: event.after, accuracy: event.accuracy });
+  }
+
   async function api(path, body) {
     const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     let response;
@@ -223,6 +278,7 @@
       strength: settings.strength,
       forgiving: settings.forgiving,
       solver: settings.solver,
+      opponentStyle: settings.opponentStyle,
       flipped: settings.flipped,
       outcome: state.outcome,
       ready: available(),
@@ -298,7 +354,7 @@
     for (const [position, color] of [["top", top], ["bottom", bottom]]) {
       const isSolver = color === settings.solver;
       $(`${position}-player-name`).textContent = isSolver ? "Practice opponent" : "You";
-      $(`${position}-player-detail`).textContent = `${capitalize(color)} · ${isSolver ? `Stockfish · ${settings.strength}%` : "Your pieces"}`;
+      $(`${position}-player-detail`).textContent = `${capitalize(color)} · ${isSolver ? targetsAccuracy() ? "Stockfish · 85–90% target" : `Stockfish · ${settings.strength}% strength` : "Your pieces"}`;
       $(`${position}-player-icon`).textContent = color === "white" ? "♔" : "♚";
       $(`${position}-player-icon`).classList.toggle("light-icon", color === "white");
     }
@@ -368,7 +424,7 @@
     $("elapsed").hidden = !running;
     $("score").textContent = formatScore(analysis?.score);
     $("best-move").textContent = analysis?.bestSan || "—";
-    $("best-move-label").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate ? "BEST MOVE" : "ENGINE MOVE";
+    $("best-move-label").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate && !analysis?.accuracyTarget?.enabled ? "BEST MOVE" : "ENGINE MOVE";
     $("depth").textContent = analysis?.depth ? String(analysis.depth) : "—";
     $("nodes").textContent = analysis?.nodes ? compactNumber(analysis.nodes) : "—";
     $("analysis-time").textContent = analysis?.timeMs !== undefined ? `${(analysis.timeMs / 1000).toFixed(1)}s` : "—";
@@ -416,10 +472,11 @@
     $("stop").textContent = stoppingSearch ? "Stopping…" : "Stop analysis";
     $("play-best").hidden = !resultApplicable() || running;
     $("play-best").disabled = !interactive();
-    $("play-best").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate ? "Play best move" : "Play engine move";
-    $("practice-summary").textContent = `${settings.strength}% strength${settings.forgiving ? " · Forgiving" : ""}`;
+    $("play-best").textContent = analysis?.strength === 100 && !analysis?.practice?.deliberate && !analysis?.accuracyTarget?.enabled ? "Play best move" : "Play engine move";
+    $("practice-summary").textContent = targetsAccuracy() ? "Opponent target: 85–90% local accuracy" : `${settings.strength}% strength${settings.forgiving ? " · Forgiving" : ""}`;
+    $("practice-opponent-note").textContent = targetsAccuracy() ? `Approximate target; a game can finish outside this range. Your suggestions: ${settings.strength}% strength${settings.forgiving ? " · Forgiving" : ""}.` : "Strength controls your opponent and suggestions; it is not measured accuracy.";
     $("practice-inaccuracies-status").textContent = `Extra inaccuracies: ${practiceLedger?.events.length || 0}/${settings.extraInaccuracies} target`;
-    $("practice-inaccuracies-status").hidden = settings.extraInaccuracies === 0;
+    $("practice-inaccuracies-status").hidden = targetsAccuracy() || settings.extraInaccuracies === 0;
     $("auto-reply").checked = settings.auto;
     $("auto-reply").disabled = busy || screenshotImportOpen || matchReviewOpen;
     for (const color of ["white", "black"]) {
@@ -498,6 +555,7 @@
       if (archiveCurrent) rememberMatch();
       state = next;
       reconcilePractice();
+      reconcileAccuracyTarget();
       onCommit?.();
       statusOverride = "";
       autoPaused = !auto;
@@ -522,7 +580,10 @@
     const previous = analysis;
     if (engine && previous) previous.applied = true;
     const success = await transition(() => api("/api/move", { ...position, move }), { preserveAnalysis: engine, onCommit: () => {
-      if (engine) commitPracticeMove(previous, position, move);
+      if (engine) {
+        if (!targetsAccuracy()) commitPracticeMove(previous, position, move);
+        commitAccuracyTargetMove(previous, position, move);
+      }
     } });
     if (!success && previous) {
       previous.applied = false;
@@ -559,10 +620,12 @@
     render();
     try {
       const practice = state.turn === settings.solver;
-      const practiceRequest = practice ? { practice: { target: settings.extraInaccuracies, startPly: practiceLedger.startPly, events: practiceLedger.events.map((event) => ({ ...event })) } } : {};
-      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: settings.strength, forgiving: settings.forgiving, ...practiceRequest });
+      const targetMode = practice && targetsAccuracy();
+      const practiceRequest = practice ? { practice: { target: targetMode ? 0 : settings.extraInaccuracies, startPly: practiceLedger.startPly, events: targetMode ? [] : practiceLedger.events.map((event) => ({ ...event })) } } : {};
+      const targetRequest = targetMode ? { accuracyTarget: { enabled: true, startPly: accuracyTargetLedger.startPly, events: accuracyTargetLedger.events.map((event) => ({ ...event })) } } : {};
+      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: settings.strength, forgiving: settings.forgiving, ...practiceRequest, ...targetRequest });
       const response = await search.pending;
-      if (activeSearch !== search || ticket !== operation || state.fen !== fen || response.requestId !== id || response.positionFen !== fen) return;
+      if (activeSearch !== search || ticket !== operation || state.fen !== fen || !samePosition(position, state) || response.requestId !== id || response.positionFen !== fen) return;
       clearInterval(search.timer);
       activeSearch = null;
       if (response.cancelled) {
@@ -686,8 +749,14 @@
   });
   function renderGameStrength() {
     const strength = Number($("game-strength").value);
+    const targetMode = $("game-opponent-style").value === "target-85-90";
     $("game-strength-value").value = `${strength}%`;
     $("game-strength").setAttribute("aria-valuetext", `${strength}%${strength === 100 ? ", full strength" : " strength"}`);
+    $("game-strength-label").textContent = targetMode ? "Your suggestion strength" : "Engine strength";
+    $("game-strength-note").textContent = targetMode ? "Controls your move suggestions. Your practice opponent aims for 85–90% local accuracy using the moves it plays; individual games can finish outside this range." : "Sets opponent difficulty and your move suggestions. Not measured accuracy.";
+    $("game-forgiving-note").textContent = targetMode ? "Further lowers the strength of your suggestions." : "Further lowers strength for both sides.";
+    $("game-inaccuracies").disabled = newGameSubmitting || targetMode;
+    $("game-inaccuracies-note").hidden = !targetMode;
   }
 
   async function openNewGame() {
@@ -699,6 +768,7 @@
     $("game-strength").value = gameConfigured ? settings.strength : 70;
     $("game-forgiving").checked = settings.forgiving;
     $("game-inaccuracies").value = String(settings.extraInaccuracies);
+    $("game-opponent-style").value = settings.opponentStyle;
     $("new-game-error").hidden = true;
     $("new-game-dialog").returnValue = "";
     renderGameStrength();
@@ -728,6 +798,7 @@
     if ($("game-forgiving").checked && Number($("game-strength").value) === 100) $("game-strength").value = 90;
     renderGameStrength();
   });
+  $("game-opponent-style").addEventListener("change", renderGameStrength);
   $("new-game-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     if (busy || newGameSubmitting) return;
@@ -735,12 +806,13 @@
       strength: Number($("game-strength").value),
       forgiving: $("game-forgiving").checked && Number($("game-strength").value) < 100,
       extraInaccuracies: Number($("game-inaccuracies").value),
+      opponentStyle: $("game-opponent-style").value === "classic" ? "classic" : "target-85-90",
       solver: $("game-color").value === "white" ? "black" : "white",
       flipped: $("game-color").value === "black",
       auto: true,
     };
     newGameSubmitting = true;
-    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies"]) $(id).disabled = true;
+    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies", "game-opponent-style"]) $(id).disabled = true;
     $("new-game-error").hidden = true;
     await transition(async () => {
       try { return await api("/api/position", { moves: [] }); }
@@ -752,12 +824,14 @@
     }, { archiveCurrent: true, onCommit: () => {
       Object.assign(settings, draft);
       resetPractice();
+      resetAccuracyTarget();
       gameConfigured = true;
       $("move-input").value = "";
       $("new-game-dialog").close("started");
     } });
     newGameSubmitting = false;
-    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies"]) $(id).disabled = false;
+    for (const id of ["start-game", "close-new-game", "game-color", "game-strength", "game-forgiving", "game-inaccuracies", "game-opponent-style"]) $(id).disabled = false;
+    renderGameStrength();
   });
   $("undo").addEventListener("click", () => {
     if (!state?.moves.length || busy) return;
@@ -780,6 +854,8 @@
     $(`solver-${color}`).addEventListener("click", async () => {
       if (busy || settings.solver === color) return;
       settings.solver = color;
+      resetAccuracyTarget();
+      analysis = null;
       autoPaused = false;
       statusOverride = "";
       save();
@@ -836,13 +912,15 @@
         strength: settings.strength,
         forgiving: settings.forgiving,
         extraInaccuracies: settings.extraInaccuracies,
-        onConfirm: async ({ fen, userSide, strength, forgiving, extraInaccuracies }) => {
+        opponentStyle: settings.opponentStyle,
+        onConfirm: async ({ fen, userSide, strength, forgiving, extraInaccuracies, opponentStyle }) => {
           if (!screenshotImportOpen || busy) throw new Error("Wait for the current operation, then try again.");
           if (!["white", "black"].includes(userSide)) throw new Error("Choose which side you want to play.");
           if (!Number.isInteger(strength) || strength < 10 || strength > 100 || typeof forgiving !== "boolean" || (strength === 100 && forgiving)) {
             throw new Error("Choose a valid practice strength. Forgiving mode requires a value below 100%.");
           }
           if (![0, 1, 2].includes(extraInaccuracies)) throw new Error("Choose an extra-inaccuracy target of Off, 1, or 2.");
+          if (!["target-85-90", "classic"].includes(opponentStyle)) throw new Error("Choose a practice opponent style.");
           let importError;
           const success = await transition(async () => {
             try { return await api("/api/import", { fen }); }
@@ -853,8 +931,10 @@
             settings.strength = strength;
             settings.forgiving = forgiving;
             settings.extraInaccuracies = extraInaccuracies;
+            settings.opponentStyle = opponentStyle;
             settings.auto = true;
             resetPractice();
+            resetAccuracyTarget();
             gameConfigured = true;
             $("move-input").value = "";
             notify("");
@@ -904,7 +984,7 @@
         $("import-error").hidden = false;
         throw error;
       }
-    }, { archiveCurrent: true, onCommit: () => { gameConfigured = true; resetPractice(); } });
+    }, { archiveCurrent: true, onCommit: () => { gameConfigured = true; resetPractice(); resetAccuracyTarget(); } });
     $("submit-import").disabled = false;
     if (success) { $("import-dialog").close(); $("import-text").value = ""; }
   });
@@ -965,11 +1045,13 @@
     if (results[1].status === "fulfilled") {
       state = results[1].value;
       restorePractice(saved?.practice);
+      restoreAccuracyTarget(saved?.accuracyTarget);
     }
     else {
       try {
         state = await api("/api/position", { moves: [] });
         resetPractice();
+        resetAccuracyTarget();
         gameConfigured = false;
         notify("The saved game could not be restored. A fresh board is ready.", true);
       } catch (error) { notify(error.message, true, true); }

@@ -86,11 +86,16 @@
     $("screenshot-manual").disabled = recognizing || submitting;
     for (const input of $("screenshot-review").querySelectorAll("input, select, button")) input.disabled = submitting;
     $("screenshot-forgiving").disabled = submitting || Number($("screenshot-strength").value) === 100;
+    $("screenshot-inaccuracies").disabled = submitting || $("screenshot-opponent-style").value === "target-85-90";
     updateCastling();
   }
 
   function updateStrength() {
+    const targetMode = $("screenshot-opponent-style").value === "target-85-90";
     $("screenshot-strength-value").value = `${$("screenshot-strength").value}%`;
+    $("screenshot-strength-label").textContent = targetMode ? "Your suggestion strength" : "Engine strength";
+    $("screenshot-opponent-note").textContent = targetMode ? "Opponent target: 85–90% local accuracy. Games can finish outside this range; strength and forgiving mode control your suggestions." : "Strength and forgiving mode control your opponent and suggestions; strength is not measured accuracy.";
+    $("screenshot-inaccuracies-note").hidden = !targetMode;
     if (Number($("screenshot-strength").value) === 100) $("screenshot-forgiving").checked = false;
     updateControls();
   }
@@ -311,6 +316,7 @@
     if (input.id !== "screenshot-reviewed") input.addEventListener("change", invalidateReview);
   }
   $("screenshot-strength").addEventListener("input", updateStrength);
+  $("screenshot-opponent-style").addEventListener("change", updateStrength);
   const close = () => { if (!submitting) dialog.close("cancelled"); };
   $("close-screenshot").addEventListener("click", close);
   $("screenshot-cancel").addEventListener("click", close);
@@ -336,7 +342,7 @@
     updateControls();
     try {
       if (typeof host?.onConfirm !== "function") throw new Error("The position importer is unavailable. Close this dialog and try again.");
-      await host.onConfirm({ fen, userSide: $("screenshot-side").value, strength: Number($("screenshot-strength").value), forgiving: $("screenshot-forgiving").checked, extraInaccuracies: Number($("screenshot-inaccuracies").value) });
+      await host.onConfirm({ fen, userSide: $("screenshot-side").value, strength: Number($("screenshot-strength").value), forgiving: $("screenshot-forgiving").checked, extraInaccuracies: Number($("screenshot-inaccuracies").value), opponentStyle: $("screenshot-opponent-style").value });
       loaded = true;
       dialog.close("loaded");
     } catch (failure) {
@@ -366,6 +372,7 @@
       $("screenshot-strength").value = String(Math.min(100, Math.max(10, Math.round(Number(options.strength) || 70))));
       $("screenshot-forgiving").checked = Boolean(options.forgiving);
       $("screenshot-inaccuracies").value = String([0, 1, 2].includes(options.extraInaccuracies) ? options.extraInaccuracies : 0);
+      $("screenshot-opponent-style").value = options.opponentStyle === "classic" ? "classic" : "target-85-90";
       $("screenshot-review").hidden = true;
       $("screenshot-recovery").hidden = true;
       $("screenshot-status").textContent = "No screenshot selected.";

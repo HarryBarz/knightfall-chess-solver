@@ -735,6 +735,44 @@ class SolverAPITest(unittest.TestCase):
         self.assertFalse(cancelled["scored"])
         self.assertIsNone(cancelled["moveAccuracy"])
 
+    def test_target_accuracy_moves_and_classic_strength_are_separate(self):
+        payload = {"moves": ["e2e4"], "requestId": str(uuid.uuid4()), "seconds": 1,
+                   "threads": 1, "hashMb": 32, "strength": 67, "accuracyTarget": {"enabled": True}}
+        result = self.post("/api/analyze", payload)
+        self.assertFalse(result["cancelled"])
+        self.assertEqual(result["skillLevel"], 20, "Candidates use an unrestricted reference before selecting a weaker move")
+        target = result["accuracyTarget"]
+        self.assertEqual((target["lower"], target["upper"]), (85, 90))
+        self.assertEqual(target["event"]["move"], result["bestMove"])
+        self.assertEqual(target["event"]["ply"], 1)
+        self.assertEqual(result["lines"][0]["move"], result["bestMove"])
+        self.assertEqual(result["lines"][0]["score"], result["score"])
+        # A later request accepts only a proposal that was really played.
+        board = chess.Board()
+        board.push_uci("e2e4")
+        board.push_uci(result["bestMove"])
+        board.push(next(iter(board.legal_moves)))
+        following = self.post("/api/analyze", {**payload, "requestId": str(uuid.uuid4()),
+            "moves": [move.uci() for move in board.move_stack],
+            "accuracyTarget": {"enabled": True, "events": [target["event"]]}})
+        self.assertEqual(following["accuracyTarget"]["event"]["ply"], 3)
+        classic = self.post("/api/analyze", {**payload, "requestId": str(uuid.uuid4()), "accuracyTarget": {"enabled": False}})
+        self.assertEqual(classic["skillLevel"], 12)
+        self.assertFalse(classic["accuracyTarget"]["enabled"])
+
+    def test_target_accuracy_rejects_conflicts_and_cancels_without_committing(self):
+        payload = {"moves": ["e2e4"], "requestId": str(uuid.uuid4()), "seconds": 1,
+                   "accuracyTarget": {"enabled": True}}
+        for change in ({"accuracyTarget": None}, {"accuracyTarget": {"enabled": "yes"}},
+                       {"accuracyTarget": {"enabled": True, "events": [{"ply": 0, "move": "e2e4"}]}},
+                       {"practice": {"target": 1}}):
+            status, _ = self.request("/api/analyze", {**payload, **change})
+            self.assertEqual(status, 400)
+        self.post("/api/stop", {"requestId": payload["requestId"]})
+        cancelled = self.post("/api/analyze", payload)
+        self.assertTrue(cancelled["cancelled"])
+        self.assertIsNone(cancelled["accuracyTarget"]["event"])
+
     def test_accuracy_does_not_cancel_playing_or_review_searches(self):
         ident = str(uuid.uuid4())
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

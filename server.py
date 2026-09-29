@@ -36,6 +36,7 @@ from match_review import MatchReviewService
 from arrows import ArrowService
 from accuracy import AccuracyService
 from practice import PracticePlan
+from target_accuracy import AccuracyTarget, SEARCH_LINES as TARGET_SEARCH_LINES
 
 
 ROOT = Path(__file__).resolve().parent
@@ -288,6 +289,7 @@ class StockfishService:
         self, board: chess.Board, ident: str, cancelled: bool = False,
         *, strength: int = 100, forgiving: bool = False, skill_level: int = 20,
         practice: dict | None = None,
+        accuracy_target: dict | None = None,
     ) -> dict:
         return {
             "requestId": ident,
@@ -299,6 +301,7 @@ class StockfishService:
             "engine": self._engine_name, "cancelled": cancelled,
             "strength": strength, "forgiving": forgiving, "skillLevel": skill_level,
             "practice": practice,
+            "accuracyTarget": accuracy_target,
         }
 
     def analyze(self, data: dict) -> dict:
@@ -316,16 +319,23 @@ class StockfishService:
             raise APIError("Choose a strength below 100 to enable forgiving practice.")
         try:
             practice = PracticePlan.from_request(data, board)
+            accuracy_target = AccuracyTarget.from_request(data, board)
+            if accuracy_target.enabled and practice.target:
+                raise ValueError("Choose accuracy targeting or extra practice inaccuracies, not both.")
         except ValueError as exc:
             raise APIError(str(exc)) from exc
         skill_level = (strength - 10) * 20 // 90
         if forgiving:
             skill_level = min(skill_level, 4)
+        if accuracy_target.enabled:
+            skill_level = 20
         settings = {"strength": strength, "forgiving": forgiving, "skill_level": skill_level,
-                    "practice": practice.payload()}
+                    "practice": practice.payload(), "accuracy_target": accuracy_target.payload()}
         search_pv = max(multi_pv, 4) if skill_level < 20 else multi_pv
         if practice.eligible:
             search_pv = max(search_pv, 8)
+        if accuracy_target.enabled:
+            search_pv = min(board.legal_moves.count(), max(multi_pv, TARGET_SEARCH_LINES))
         if not self._analysis_lock.acquire(blocking=False):
             raise APIError("Stockfish is already thinking. Stop the current search before starting another.", 409)
         started = time.monotonic()
@@ -337,7 +347,7 @@ class StockfishService:
             if board.is_game_over(claim_draw=False):
                 return self._empty_result(board, ident, **settings)
             engine = self._get_engine()
-            if skill_level < 20 or practice.eligible:
+            if skill_level < 20 or practice.eligible or accuracy_target.enabled:
                 if "Skill Level" not in engine.options or engine.options["Skill Level"].type != "spin":
                     raise APIError("This engine does not support the requested practice options. Use Stockfish.", 503)
                 try:
@@ -370,9 +380,12 @@ class StockfishService:
             with self._state_lock:
                 cancelled = ident in self._cancelled
             chosen = None if cancelled else practice.choose(board, infos, best_move)
+            if accuracy_target.enabled and not cancelled:
+                chosen, settings["accuracy_target"] = accuracy_target.choose(board, infos, best_move)
             if chosen is not None:
                 best_move = chosen["pv"][0]
-                settings["practice"] = practice.payload(chosen)
+                if not accuracy_target.enabled:
+                    settings["practice"] = practice.payload(chosen)
             lines = []
             for info in infos:
                 pv = info.get("pv", [])
@@ -399,6 +412,7 @@ class StockfishService:
                 cancelled = ident in self._cancelled
             if cancelled:
                 settings["practice"] = practice.payload()
+                settings["accuracy_target"] = accuracy_target.payload(reason="cancelled")
             result = self._empty_result(board, ident, cancelled, **settings)
             result.update({
                 "bestMove": best_move.uci() if best_move else None,
