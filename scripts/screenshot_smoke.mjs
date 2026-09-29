@@ -98,7 +98,8 @@ try {
   const setChecked = async (selector, value) => {
     if (await evaluate(`document.querySelector(${JSON.stringify(selector)}).checked`) !== value) await click(selector);
   };
-  const snapshot = () => evaluate(`JSON.stringify({ saved: ${savedExpression}, squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`);
+  // Clock bookkeeping can change as screenshot setup pauses/resumes the game.
+  const snapshot = () => evaluate(`JSON.stringify({ saved: (({ clock, ...game }) => game)(${savedExpression}), squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`);
   const screenshot = async path => {
     const result = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     await writeFile(path, Buffer.from(result.data, 'base64'));

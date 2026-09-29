@@ -22,9 +22,13 @@ Setup creates a local Python environment, downloads the pinned official Stockfis
 1. On first launch and each **New game**, choose your side and practice opponent. **Target 85–90% local accuracy** is the default. It chooses actual moves toward that range while allowing wins and losses; individual reports can finish outside the range. **Your suggestion strength** (initially 70%) controls help for your own moves. Choose **Classic strength slider** to use that difficulty for both sides instead. **Forgiving mode** further lowers the sides controlled by the slider. Then **Start game**. Cancelling keeps your current board and settings.
 2. Enter your move by clicking its piece and destination, or typing SAN (`Nf3`, `O-O`) or UCI (`g1f3`).
 3. With **Automatic replies** enabled, the opponent replies using the selected mode. If you choose Black, the engine makes White's opening move.
-4. Choose a thinking time from 1 second to 2 minutes. For difficult positions, give it 30–120 seconds.
+4. Each side starts with **10 minutes**, with no increment. Engine thinking defaults to **3 seconds per move**; you can change it from 1 second to 2 minutes. Searches shorten automatically when the active clock runs low.
 
 Turn automatic replies off for manual analysis of either side. **Analyze position** uses the opponent's selected mode on its turn and your suggestion strength on your turn. **Play engine move** (or **Play best move** for classic full strength) applies it. **Stop analysis** cancels the search without playing a move. **Undo** takes back a completed player/engine pair in automatic mode, or one move in manual mode.
+
+**Pause game** stops both clocks and move entry; you can still analyze the position while paused. New-game setup, import dialogs, and match review also pause the clock until closed. Background tabs and page reloads keep counting elapsed time, so pause explicitly before leaving. Stopping analysis alone does not pause the game. Undo keeps time already spent.
+
+Running out of time ends the game and opens the usual review and accuracy options. The opponent wins unless its material cannot mate, in which case the result is a draw. A completed checkmate or automatic draw keeps its result. Undo is disabled after a timeout; start a new game or import a position to play again. New games and imported continuations receive fresh clocks, and exported PGN includes `TimeControl "600+0"` plus the result and termination for a timeout. Games saved before clocks were added receive fresh time at their current position.
 
 You can flip the board, import a FEN position or PGN game, copy the current FEN, and export PGN. Games and settings are saved in this browser's local storage. Imported PGN keeps repetition history; FEN only contains the current position and cannot recover earlier repetitions. The app supports standard chess.
 
@@ -247,6 +251,8 @@ This is an interface to Stockfish, not a new engine trained from scratch. Stockf
 
 ```sh
 .venv/bin/python -m unittest discover -s tests -v
+node --test tests/game_clock.test.mjs
+node scripts/clock_smoke.mjs
 node scripts/browser_smoke.mjs
 node scripts/screenshot_smoke.mjs
 node scripts/review_smoke.mjs
@@ -283,6 +289,7 @@ Package versions are pinned in `package-lock.json`. The build preserves the acco
 - `web/review.js`, `web/review.css`: replay board, lesson navigation, and variation previews.
 - `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.
 - `target_accuracy.py`: bounded opponent move selection toward the local accuracy target and committed-history feedback.
+- `web/game-clock.js`: persisted ten-minute clocks, elapsed-time accounting, and undo without time refunds.
 - `web/`: responsive browser interface, using plain HTML, CSS, and JavaScript.
 - `web/vendor/screenshot/`: self-hosted recognition model, WebAssembly runtime, and licenses, loaded only for screenshot import.
 - `scripts/build_screenshot_recognizer.mjs`: reproducible browser recognition bundle (Node/npm needed only to rebuild these assets).

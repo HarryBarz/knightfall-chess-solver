@@ -103,7 +103,10 @@ def board_from_request(data: dict) -> chess.Board:
     return board
 
 
-def position_payload(board: chess.Board) -> dict:
+def position_payload(
+    board: chess.Board, *, outcome_override: dict | None = None,
+    time_control: str | None = None,
+) -> dict:
     replay = board.root()
     initial_fen = replay.fen()
     history = []
@@ -125,13 +128,21 @@ def position_payload(board: chess.Board) -> dict:
             "reason": outcome.termination.name.lower().replace("_", " "),
             "winner": None if outcome.winner is None else ("white" if outcome.winner else "black"),
         }
+    elif outcome_override is not None:
+        outcome_data = outcome_override
     claimable_draw = None
-    if outcome is None:
+    if outcome_data is None:
         if board.can_claim_fifty_moves():
             claimable_draw = "fifty-move rule"
         elif board.can_claim_threefold_repetition():
             claimable_draw = "threefold repetition"
     game = chess.pgn.Game.from_board(board)
+    if outcome_data is not None:
+        game.headers["Result"] = outcome_data["result"]
+        if outcome is None:
+            game.headers["Termination"] = "time forfeit"
+    if time_control is not None:
+        game.headers["TimeControl"] = time_control
     return {
         "initialFen": initial_fen,
         "moves": [move.uci() for move in board.move_stack],
@@ -140,7 +151,7 @@ def position_payload(board: chess.Board) -> dict:
             chess.square_name(square): ("w" if piece.color else "b") + piece.symbol().upper()
             for square, piece in board.piece_map().items()
         },
-        "legalMoves": [] if outcome is not None else [{
+        "legalMoves": [] if outcome_data is not None else [{
             "uci": move.uci(),
             "from": chess.square_name(move.from_square),
             "to": chess.square_name(move.to_square),
@@ -154,6 +165,29 @@ def position_payload(board: chess.Board) -> dict:
         "claimableDraw": claimable_draw,
         "pgn": game.accept(chess.pgn.StringExporter(headers=True, variations=False, comments=False)),
     }
+
+
+def timeout_payload(data: dict) -> dict:
+    """Adjudicate a local clock expiry against a validated move history."""
+    board = board_from_request(data)
+    flagged = data.get("flagged")
+    if flagged not in ("white", "black"):
+        raise APIError("flagged must be white or black.")
+    # A delivered checkmate or automatic draw finishes the game before a clock
+    # notification arriving for that same position can change its result.
+    if board.is_game_over(claim_draw=False):
+        return position_payload(board, time_control="600+0")
+    if flagged != ("white" if board.turn else "black"):
+        raise APIError("Only the side whose turn it is can lose on time.")
+    opponent = not board.turn
+    cannot_mate = board.has_insufficient_material(opponent)
+    winner = None if cannot_mate else ("white" if opponent else "black")
+    outcome = {
+        "result": "1/2-1/2" if cannot_mate else ("1-0" if opponent else "0-1"),
+        "winner": winner,
+        "reason": "time forfeit — insufficient mating material" if cannot_mate else "time forfeit",
+    }
+    return position_payload(board, outcome_override=outcome, time_control="600+0")
 
 
 def import_position(data: dict) -> chess.Board:
@@ -307,7 +341,7 @@ class StockfishService:
     def analyze(self, data: dict) -> dict:
         board = board_from_request(data)
         ident = request_id(data)
-        seconds = bounded_number(data, "seconds", 3, 1, 120)
+        seconds = bounded_number(data, "seconds", 3, 0.01, 120)
         threads = bounded_number(data, "threads", DEFAULT_THREADS, 1, MAX_THREADS, integer=True)
         hash_mb = bounded_number(data, "hashMb", DEFAULT_HASH_MB, 16, MAX_HASH_MB, integer=True)
         multi_pv = bounded_number(data, "multiPv", 1, 1, 3, integer=True)
@@ -558,6 +592,8 @@ class Handler(BaseHTTPRequestHandler):
                 result = position_payload(board)
             elif path == "/api/import":
                 result = position_payload(import_position(data))
+            elif path == "/api/timeout":
+                result = timeout_payload(data)
             elif path == "/api/analyze":
                 result = ENGINE.analyze(data)
             elif path == "/api/stop":

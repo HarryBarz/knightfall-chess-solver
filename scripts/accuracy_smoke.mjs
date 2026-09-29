@@ -68,7 +68,8 @@ try {
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new Event('change', { bubbles: true }))`);
   };
   const workspace = 'JSON.parse(localStorage.getItem("knightfall.workspace.v1"))';
-  const savedGame = `JSON.stringify({ saved: ${workspace}, squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`;
+  // Clock bookkeeping changes independently of read-only scoring and review.
+  const savedGame = `JSON.stringify({ saved: (({ clock, ...game }) => game)(${workspace}), squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`;
   const reportId = (prefix = '') => `#${prefix}accuracy-report`;
   const complete = (prefix = '') => `document.querySelector('${reportId(prefix)}')?.dataset.status === 'complete'`;
   const waitComplete = async (prefix = '') => until(complete(prefix));

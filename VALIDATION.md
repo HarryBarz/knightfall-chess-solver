@@ -2,6 +2,62 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Ten-minute games and three-second replies (2026-09-29)
+
+Executed on the same macOS/Stockfish environment:
+
+```sh
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python -m unittest discover -s tests -v
+node --test tests/game_clock.test.mjs
+node scripts/clock_smoke.mjs http://127.0.0.1:8877
+node scripts/target_accuracy_smoke.mjs http://127.0.0.1:8877
+node scripts/browser_smoke.mjs http://127.0.0.1:8877
+node scripts/review_smoke.mjs http://127.0.0.1:8877
+node scripts/accuracy_smoke.mjs http://127.0.0.1:8879
+node scripts/screenshot_smoke.mjs http://127.0.0.1:8879
+node scripts/clock_smoke.mjs http://127.0.0.1:8879
+node scripts/arrows_smoke.mjs http://127.0.0.1:8879
+```
+
+All **133 Python tests passed in 49.525s**, and **13 deterministic clock tests
+passed**. Coverage includes 600-second balances, active-side charging, sparse
+background ticks, running and paused reloads, expiry, late/illegal moves,
+no-refund undo, imported baselines, malformed saves, and backwards time.
+HTTP/native tests verify time-forfeit wins for both colors, insufficient-material
+timeout draws, precedence of existing board results, PGN result/termination/time
+control, and legal Classic/target replies at 0.01 and 0.2 seconds.
+
+The existing native extra-inaccuracy test initially failed because its tactical
+fixture ended on bound-only evaluations, which the policy correctly declined.
+It now uses a quieter position and at most three timed previews, requires a real
+bounded opportunity for both colors, and verifies declines never spend its
+budget. Three isolated native repetitions passed before the full suite above.
+No move-selection policy or accuracy formula was changed for clocks.
+
+Chrome clock checks passed with actual native searches and server adjudication.
+A normal reply requested **3 seconds**; a low-clock reply requested **1.465
+seconds** from a seeded 1.8-second balance. Held real engine and move responses
+were released after flag fall and could not update the board or saved history.
+A matching unfinished archived game receives the new timeout result. Import
+pauses both clocks and resumes automatic play even when closed during search
+cancellation. Explicit pause, reload, board flip, fresh import/new-game
+clocks, timeout review, and exported `600+0` PGN also passed. Cancelling the first
+setup leaves play disabled until a timed game is started.
+
+Existing gameplay, target-opponent, replay, accuracy, screenshot-recognition,
+and learning-arrow browser checks passed.
+The first accuracy run encountered an occupied playing engine on port 8877; it
+passed on a fresh isolated server at port 8879. Read-only workspace assertions
+exclude changing clock bookkeeping while retaining board, settings, history,
+ledger, and explicit-pause comparisons.
+
+Both live clocks fit desktop, narrow desktop, and 390px mobile viewports.
+Desktop and mobile captures were visually inspected. Artifacts are
+`artifacts/clock-smoke.json`, `artifacts/clock-live-desktop.png`,
+`artifacts/clock-live-narrow.png`, and `artifacts/clock-live-mobile.png`.
+Browser time jumps and seeded low balances test expiry without a ten-minute wait;
+the normal three-second reply uses real elapsed engine time.
+
 ## Opponent targeting 85–90% local accuracy (2026-09-29)
 
 Executed with native Stockfish 19, including independently reviewed actual move

@@ -11,7 +11,9 @@
   const settings = {
     solver: saved?.settings?.solver === "white" ? "white" : "black",
     auto: saved?.settings?.auto !== false,
-    seconds: [1, 5, 15, 30, 60, 120].includes(saved?.settings?.seconds) ? saved.settings.seconds : 5,
+    seconds: [1, 3, 5, 15, 30, 60, 120].includes(saved?.settings?.seconds)
+      && (saved.settings.timingVersion === 1 || saved.settings.seconds !== 5) ? saved.settings.seconds : 3,
+    timingVersion: 1,
     threads: validInteger(saved?.settings?.threads, 1, 512, 1),
     hashMb: validInteger(saved?.settings?.hashMb, 16, 65536, 128),
     multiPv: validInteger(saved?.settings?.multiPv, 1, 3, 1),
@@ -31,6 +33,10 @@
   let state = null;
   let practiceLedger = null;
   let accuracyTargetLedger = null;
+  let gameClock = null;
+  let clockUserPaused = saved?.clockPaused === true;
+  let clockMovePending = false;
+  let clockJob = null;
   let health = null;
   let busy = true;
   let selected = null;
@@ -56,7 +62,8 @@
   function save() {
     if (!state) return;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger, accuracyTarget: accuracyTargetLedger }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger, accuracyTarget: accuracyTargetLedger,
+        clock: gameClock?.serialize(), clockPaused: clockUserPaused }));
     } catch { /* Private browsing and full storage must not interrupt a game. */ }
   }
 
@@ -80,10 +87,11 @@
       opponentStyle: settings.opponentStyle,
       flipped: settings.flipped, outcome: state.outcome ? { ...state.outcome } : null,
       reviewStrength: 100,
+      timeControl: "600+0",
     };
   }
 
-  function matchKey(match) { return match ? JSON.stringify([match.initialFen, match.moves, match.solver, match.strength, match.forgiving, match.opponentStyle]) : ""; }
+  function matchKey(match) { return match ? JSON.stringify([match.initialFen, match.moves, match.solver, match.strength, match.forgiving, match.opponentStyle, match.outcome?.result, match.outcome?.reason]) : ""; }
 
   function rememberMatch() {
     if (!state || (!state.moves.length && !state.outcome)) return;
@@ -234,6 +242,91 @@
     accuracyTargetLedger.events.push({ ply: event.ply, move: event.move, before: event.before, after: event.after, accuracy: event.accuracy });
   }
 
+  function resetGameClock() {
+    gameClock = new window.KnightfallGameClock.GameClock(state.initialFen, state.moves);
+    clockUserPaused = false;
+    clockJob = null;
+  }
+
+  function clockDialogOpen() {
+    return screenshotImportOpen || matchReviewOpen || $("new-game-dialog").open || $("import-dialog").open;
+  }
+
+  function timedPgn(pgn) {
+    return /^\[TimeControl /m.test(pgn) ? pgn : pgn.replace(/\n\n/, '\n[TimeControl "600+0"]\n\n');
+  }
+
+  function syncClock() {
+    if (!gameClock || !state) return null;
+    const prior = gameClock.snapshot();
+    const running = gameConfigured && !state.outcome && !clockUserPaused && !clockDialogOpen() && (!busy || clockMovePending);
+    const snapshot = running ? gameClock.resume() : gameClock.pause();
+    if (prior.running !== snapshot.running) save();
+    renderClocks(snapshot);
+    if (snapshot.flagged && !state.outcome && !clockJob) void finishTimeout();
+    return snapshot;
+  }
+
+  function renderClocks(snapshot = gameClock?.snapshot()) {
+    for (const position of ["top", "bottom"]) {
+      const color = position === "top" ? settings.flipped ? "white" : "black" : settings.flipped ? "black" : "white";
+      const element = $(`${position}-player-clock`);
+      const remaining = snapshot?.remaining[color] ?? 600000;
+      const seconds = Math.ceil(remaining / 1000);
+      element.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      element.dataset.color = color;
+      element.dataset.remainingMs = String(remaining);
+      element.classList.toggle("running", Boolean(snapshot?.running && snapshot.turn === color));
+      element.classList.toggle("low-time", remaining < 60000);
+      element.setAttribute("aria-label", `${capitalize(color)}: ${element.textContent} remaining`);
+    }
+    $("clock-status").textContent = snapshot?.flagged ? "Time expired" : state?.outcome ? "10 + 0 · Game finished"
+      : clockUserPaused ? "10 + 0 · Paused" : snapshot?.running ? "10 + 0 · Clock running" : "10 + 0 · Paused for setup or review";
+    $("clock-pause").textContent = clockUserPaused ? "Resume game" : "Pause game";
+    $("clock-pause").disabled = !gameConfigured || busy || Boolean(state?.outcome || snapshot?.flagged) || clockDialogOpen();
+    $("clock-pause").setAttribute("aria-pressed", String(clockUserPaused));
+  }
+
+  async function finishTimeout() {
+    if (!state || state.outcome || !gameClock?.flagged || clockJob) return;
+    const job = { position: context(), ticket: operation, flagged: gameClock.flagged };
+    clockJob = job;
+    autoPaused = true;
+    save();
+    render();
+    try {
+      await cancelSearch();
+      const result = await api("/api/timeout", { ...job.position, flagged: job.flagged });
+      if (clockJob !== job || operation !== job.ticket || !samePosition(job.position, state)) return;
+      state = result;
+      analysis = null;
+      statusOverride = "Game complete";
+      save();
+    } catch (error) {
+      if (clockJob === job && samePosition(job.position, state)) notify(`Time expired. ${error.message}`, true, true);
+    } finally {
+      if (clockJob === job) {
+        // Keep a failed job until the retry delay, avoiding a request per tick.
+        if (!state?.outcome && samePosition(job.position, state)) setTimeout(() => {
+          if (clockJob === job) { clockJob = null; syncClock(); }
+        }, 2000);
+        else clockJob = null;
+        render();
+      }
+    }
+  }
+
+  $("clock-pause").addEventListener("click", async () => {
+    if (!gameClock || state?.outcome || gameClock.flagged || busy) return;
+    clockUserPaused = !clockUserPaused;
+    syncClock();
+    if (clockUserPaused) await cancelSearch();
+    else autoPaused = false;
+    save(); render();
+    maybeAutomaticallyReply();
+  });
+  setInterval(() => { syncClock(); }, 100);
+
   async function api(path, body) {
     const options = body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
     let response;
@@ -256,10 +349,11 @@
   }
 
   function available() { return health?.engineAvailable === true; }
-  function interactive() { return Boolean(state && !busy && !activeSearch && !stoppingSearch && !state.outcome && !screenshotImportOpen && !matchReviewOpen && !$("new-game-dialog").open); }
+  function interactive() { return Boolean(gameConfigured && state && !busy && !activeSearch && !stoppingSearch && !state.outcome && !clockUserPaused && !gameClock?.flagged && !clockDialogOpen()); }
   function resultApplicable() { return Boolean(analysis?.bestMove && !analysis.applied && state && analysis.positionFen === state.fen && samePosition(analysis.positionContext, state)); }
 
   function render() {
+    syncClock();
     renderBoard();
     renderPlayers();
     renderHistory();
@@ -270,6 +364,7 @@
   }
 
   function publishPosition() {
+    syncClock();
     if (state) window.dispatchEvent(new CustomEvent("knightfall:position", { detail: {
       initialFen: state.initialFen,
       moves: [...state.moves],
@@ -360,6 +455,7 @@
     }
     $("top-player-badge").textContent = top === settings.solver ? "ENGINE" : "YOU";
     $("turn-badge").textContent = !state ? "Loading position" : state.outcome ? state.outcome.result : activeSearch ? "Engine thinking…" : `${capitalize(state.turn)} to move${state.check ? " · Check" : ""}`;
+    renderClocks();
   }
 
   function renderHistory() {
@@ -460,13 +556,13 @@
     const running = Boolean(activeSearch);
     $("move-input").disabled = !interactive();
     $("submit-move").disabled = !interactive();
-    $("undo").disabled = busy || screenshotImportOpen || matchReviewOpen || !state?.moves?.length;
+    $("undo").disabled = busy || screenshotImportOpen || matchReviewOpen || Boolean(gameClock?.flagged) || !state?.moves?.length;
     $("new-game").disabled = busy || screenshotImportOpen || matchReviewOpen;
     $("import").disabled = busy || screenshotImportOpen || matchReviewOpen;
     $("copy-fen").disabled = !state;
     $("export-pgn").disabled = !state;
     $("analyze").hidden = running;
-    $("analyze").disabled = busy || screenshotImportOpen || matchReviewOpen || Boolean(stoppingSearch) || !state || Boolean(state.outcome) || !available();
+    $("analyze").disabled = busy || screenshotImportOpen || matchReviewOpen || Boolean(stoppingSearch) || !state || Boolean(state.outcome || gameClock?.flagged) || !available();
     $("stop").hidden = !running && !stoppingSearch;
     $("stop").disabled = Boolean(stoppingSearch);
     $("stop").textContent = stoppingSearch ? "Stopping…" : "Stop analysis";
@@ -540,7 +636,7 @@
     await promise;
   }
 
-  async function transition(fetchPosition, { auto = true, preserveAnalysis = false, onCommit = null, archiveCurrent = false } = {}) {
+  async function transition(fetchPosition, { auto = true, preserveAnalysis = false, beforeCommit = null, onCommit = null, archiveCurrent = false } = {}) {
     if (busy) return false;
     busy = true;
     const ticket = ++operation;
@@ -552,8 +648,10 @@
       await cancelSearch();
       const next = await fetchPosition();
       if (ticket !== operation) return false;
+      if (beforeCommit && !beforeCommit(next)) return false;
       if (archiveCurrent) rememberMatch();
       state = next;
+      state.pgn = timedPgn(state.pgn);
       reconcilePractice();
       reconcileAccuracyTarget();
       onCommit?.();
@@ -575,16 +673,23 @@
   }
 
   async function makeMove(move, { engine = false } = {}) {
-    if (!state || busy || (!engine && activeSearch)) return false;
+    syncClock();
+    if (!gameConfigured || !state || busy || state.outcome || clockUserPaused || gameClock?.flagged || clockDialogOpen() || (!engine && activeSearch)) return false;
     const position = context();
     const previous = analysis;
     if (engine && previous) previous.applied = true;
-    const success = await transition(() => api("/api/move", { ...position, move }), { preserveAnalysis: engine, onCommit: () => {
+    clockMovePending = true;
+    const success = await transition(() => api("/api/move", { ...position, move }), { preserveAnalysis: engine, beforeCommit: (next) => {
+      const committed = gameClock?.commit(next.moves);
+      if (!committed) { syncClock(); return false; }
+      return true;
+    }, onCommit: () => {
       if (engine) {
         if (!targetsAccuracy()) commitPracticeMove(previous, position, move);
         commitAccuracyTargetMove(previous, position, move);
       }
     } });
+    clockMovePending = false;
     if (!success && previous) {
       previous.applied = false;
       render();
@@ -594,13 +699,15 @@
   }
 
   function maybeAutomaticallyReply() {
-    if (state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && !screenshotImportOpen && !matchReviewOpen && !$("new-game-dialog").open && settings.auto && state.turn === settings.solver && !state.outcome) {
+    if (gameConfigured && state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && !clockUserPaused && !gameClock?.flagged && !clockDialogOpen() && settings.auto && state.turn === settings.solver && !state.outcome) {
       void analyzePosition(true);
     }
   }
 
   async function analyzePosition(autoPlay) {
-    if (!state || busy || activeSearch || stoppingSearch || state.outcome || !available() || screenshotImportOpen || matchReviewOpen || $("new-game-dialog").open) return;
+    syncClock();
+    if (!state || busy || activeSearch || stoppingSearch || state.outcome || gameClock?.flagged || !available() || clockDialogOpen()) return;
+    autoPlay = autoPlay && gameConfigured && !clockUserPaused;
     autoPaused = false;
     statusOverride = "";
     selected = null;
@@ -609,13 +716,15 @@
     const position = context();
     const ticket = operation;
     const start = performance.now();
-    const search = { id, fen, autoPlay, timer: null };
+    const remaining = gameClock?.snapshot();
+    const seconds = remaining?.running ? Math.min(settings.seconds, Math.max(.01, (remaining.remaining[state.turn] - 250) / 1000)) : settings.seconds;
+    const search = { id, fen, autoPlay, timer: null, seconds };
     activeSearch = search;
     $("elapsed").textContent = "0.0s";
     search.timer = setInterval(() => {
       if (activeSearch !== search) return;
-      const seconds = (performance.now() - start) / 1000;
-      $("elapsed").textContent = `${seconds.toFixed(1)}s / ${settings.seconds}s`;
+      const elapsed = (performance.now() - start) / 1000;
+      $("elapsed").textContent = `${elapsed.toFixed(1)}s / ${search.seconds.toFixed(search.seconds < 1 ? 2 : 0)}s`;
     }, 100);
     render();
     try {
@@ -623,8 +732,9 @@
       const targetMode = practice && targetsAccuracy();
       const practiceRequest = practice ? { practice: { target: targetMode ? 0 : settings.extraInaccuracies, startPly: practiceLedger.startPly, events: targetMode ? [] : practiceLedger.events.map((event) => ({ ...event })) } } : {};
       const targetRequest = targetMode ? { accuracyTarget: { enabled: true, startPly: accuracyTargetLedger.startPly, events: accuracyTargetLedger.events.map((event) => ({ ...event })) } } : {};
-      search.pending = api("/api/analyze", { ...position, seconds: settings.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: settings.strength, forgiving: settings.forgiving, ...practiceRequest, ...targetRequest });
+      search.pending = api("/api/analyze", { ...position, seconds: search.seconds, threads: settings.threads, hashMb: settings.hashMb, multiPv: settings.multiPv, requestId: id, strength: settings.strength, forgiving: settings.forgiving, ...practiceRequest, ...targetRequest });
       const response = await search.pending;
+      syncClock();
       if (activeSearch !== search || ticket !== operation || state.fen !== fen || !samePosition(position, state) || response.requestId !== id || response.positionFen !== fen) return;
       clearInterval(search.timer);
       activeSearch = null;
@@ -757,6 +867,7 @@
     $("game-forgiving-note").textContent = targetMode ? "Further lowers the strength of your suggestions." : "Further lowers strength for both sides.";
     $("game-inaccuracies").disabled = newGameSubmitting || targetMode;
     $("game-inaccuracies-note").hidden = !targetMode;
+    $("game-time-note").textContent = `10 minutes per side · No increment · Up to ${settings.seconds} seconds of engine thinking per move.`;
   }
 
   async function openNewGame() {
@@ -825,6 +936,7 @@
       Object.assign(settings, draft);
       resetPractice();
       resetAccuracyTarget();
+      resetGameClock();
       gameConfigured = true;
       $("move-input").value = "";
       $("new-game-dialog").close("started");
@@ -839,7 +951,8 @@
     const last = state.history.at(-1);
     const pair = settings.auto && last?.turn === settings.solver && previous.moves.length >= 2;
     previous.moves.splice(-Math.min(pair ? 2 : 1, previous.moves.length));
-    void transition(() => api("/api/position", previous), { auto: false });
+    if (gameClock?.flagged) return;
+    void transition(() => api("/api/position", previous), { auto: false, beforeCommit: (next) => gameClock.undo(next.moves) });
   });
   $("flip").addEventListener("click", () => {
     settings.flipped = !settings.flipped;
@@ -893,13 +1006,15 @@
     });
   }
 
-  $("import").addEventListener("click", () => {
+  $("import").addEventListener("click", async () => {
     $("import-error").hidden = true;
     $("import-dialog").showModal();
     $("import-text").focus();
     publishPosition();
+    await cancelSearch();
+    maybeAutomaticallyReply();
   });
-  $("import-dialog").addEventListener("close", publishPosition);
+  $("import-dialog").addEventListener("close", () => { render(); maybeAutomaticallyReply(); });
   $("open-screenshot")?.addEventListener("click", async () => {
     if (busy || screenshotImportOpen || !window.KnightfallScreenshot) return;
     const wasPaused = autoPaused;
@@ -935,6 +1050,7 @@
             settings.auto = true;
             resetPractice();
             resetAccuracyTarget();
+            resetGameClock();
             gameConfigured = true;
             $("move-input").value = "";
             notify("");
@@ -984,7 +1100,7 @@
         $("import-error").hidden = false;
         throw error;
       }
-    }, { archiveCurrent: true, onCommit: () => { gameConfigured = true; resetPractice(); resetAccuracyTarget(); } });
+    }, { archiveCurrent: true, onCommit: () => { gameConfigured = true; resetPractice(); resetAccuracyTarget(); resetGameClock(); } });
     $("submit-import").disabled = false;
     if (success) { $("import-dialog").close(); $("import-text").value = ""; }
   });
@@ -1044,12 +1160,17 @@
     }
     if (results[1].status === "fulfilled") {
       state = results[1].value;
+      state.pgn = timedPgn(state.pgn);
+      gameClock = window.KnightfallGameClock.GameClock.restore(saved?.clock, state.initialFen, state.moves)
+        || new window.KnightfallGameClock.GameClock(state.initialFen, state.moves);
       restorePractice(saved?.practice);
       restoreAccuracyTarget(saved?.accuracyTarget);
     }
     else {
       try {
         state = await api("/api/position", { moves: [] });
+        state.pgn = timedPgn(state.pgn);
+        resetGameClock();
         resetPractice();
         resetAccuracyTarget();
         gameConfigured = false;

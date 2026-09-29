@@ -63,7 +63,7 @@ try {
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new Event('change', { bubbles: true }))`);
   };
   const workspace = 'JSON.parse(localStorage.getItem("knightfall.workspace.v1"))';
-  const savedGame = `JSON.stringify({ saved: ${workspace}, squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`;
+  const savedGame = `JSON.stringify({ saved: (({ clock, ...game }) => game)(${workspace}), squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')), history: document.querySelector('#history').textContent })`;
   const currentFen = async () => evaluate(`(async () => {
     const saved = ${workspace};
     return (await (await fetch('/api/position', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ initialFen: saved.initialFen, moves: saved.moves }) })).json()).fen;

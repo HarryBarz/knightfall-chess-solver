@@ -74,8 +74,10 @@ try {
   const historyCount = 'document.querySelectorAll(".history-row").length';
   const savedSettings = 'JSON.parse(localStorage.getItem("knightfall.workspace.v1")).settings';
   const coachReady = '!document.querySelector("#coach-content").hidden && document.querySelector("#coach-panel").getAttribute("aria-busy") === "false"';
+  // Clock bookkeeping can change during read-only previews; clock_smoke covers it.
+  const savedGameState = "(({ clock, ...game }) => game)(JSON.parse(localStorage.getItem('knightfall.workspace.v1')))";
   const mainPosition = `JSON.stringify({
-    saved: JSON.parse(localStorage.getItem('knightfall.workspace.v1')),
+    saved: ${savedGameState},
     history: document.querySelector('#history').textContent,
     squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')),
   })`;
@@ -186,7 +188,7 @@ try {
     await writeFile(`artifacts/desktop-${width}.png`, Buffer.from(landscape.data, 'base64'));
   }
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
-  const beforeCancel = await evaluate('localStorage.getItem("knightfall.workspace.v1")');
+  const beforeCancel = await evaluate(`JSON.stringify(${savedGameState})`);
   await click('#new-game');
   await until('document.querySelector("#new-game-dialog").open');
   await setStrength(40);
@@ -194,7 +196,7 @@ try {
   await setInput('#game-color', 'black');
   await click('#close-new-game');
   await until('!document.querySelector("#new-game-dialog").open');
-  assert.equal(await evaluate('localStorage.getItem("knightfall.workspace.v1")'), beforeCancel, 'Cancelling setup must preserve the game and settings');
+  assert.equal(await evaluate(`JSON.stringify(${savedGameState})`), beforeCancel, 'Cancelling setup must preserve the game and settings');
   assert.equal(await evaluate('document.querySelectorAll(".history-move").length'), 2);
   await evaluate('window.holdCoachResponses = true');
   await click('#coach-refresh');

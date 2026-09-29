@@ -393,7 +393,9 @@ class SolverAPITest(unittest.TestCase):
 
     def test_extra_practice_opportunity_real_engine_and_committed_budget(self):
         original = chess.Board()
-        for san in "d4 c6 a3 d5 h3 Nf6 Nf3 Ne4 Nc3 Nd7 e3 f5 Bd3 e5 dxe5 g6 Bxe4".split():
+        # This quiet position offers several bounded alternatives. The previous
+        # tactical recapture fixture relied on a single eligible second line.
+        for san in "e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7".split():
             original.push_san(san)
         mirrored = original.root().mirror()
         for move in original.move_stack:
@@ -402,8 +404,19 @@ class SolverAPITest(unittest.TestCase):
             with self.subTest(turn=board.turn):
                 moves = [move.uci() for move in board.move_stack]
                 options = {"target": 1, "startPly": 0, "events": []}
-                result = self.analyze(board.root().fen(), moves, strength=100, practice=options)
-                plan = result["practice"]
+                # A timed native search may stop on an upper/lower bound, which
+                # the policy correctly declines. Re-analyzing an unplayed move
+                # must leave its budget untouched; still require a real eligible
+                # opportunity within this bounded number of searches.
+                for seconds in (1, 2, 3):
+                    result = self.analyze(board.root().fen(), moves, seconds=seconds, strength=100, practice=options)
+                    plan = result["practice"]
+                    self.assertEqual(plan["used"], 0, "Preview must not spend the budget")
+                    self.assertIn(chess.Move.from_uci(result["bestMove"]), board.legal_moves)
+                    if plan["deliberate"]:
+                        break
+                    self.assertIsNone(plan["lossCp"])
+                    self.assertIsNone(plan["event"])
                 self.assertTrue(plan["deliberate"], result)
                 self.assertEqual(plan["used"], 0, "Preview must not spend the budget")
                 self.assertGreaterEqual(plan["lossCp"], 50)

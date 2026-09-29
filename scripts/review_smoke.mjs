@@ -73,8 +73,9 @@ try {
   const ready = 'document.querySelector("#match-review-dialog").open && document.querySelector("#match-review-dialog").getAttribute("aria-busy") === "false" && !document.querySelector("#review-content").hidden && document.querySelector("#review-error").hidden';
   const currentPly = 'Number(document.querySelector("#review-move").value)';
   const boardFen = 'document.querySelector("#review-board").dataset.fen';
+  // Clock bookkeeping can change when review pauses/resumes a live game.
   const livePosition = `JSON.stringify({
-    workspace: localStorage.getItem('knightfall.workspace.v1'),
+    workspace: (({ clock, ...game }) => game)(JSON.parse(localStorage.getItem('knightfall.workspace.v1'))),
     history: document.querySelector('#history').textContent,
     squares: Array.from(document.querySelectorAll('#board .square'), square => square.getAttribute('aria-label')),
   })`;
