@@ -1,7 +1,7 @@
-"""Local expected-points accuracy estimates from full-strength Stockfish WDL.
+"""Local accuracy estimates from full-strength Stockfish searches.
 
 The category boundaries follow Chess.com's published expected-points ranges.
-The score curve and game average are local estimates, not Chess.com CAPS2.
+Numeric accuracy uses published Lichess curves, not Chess.com CAPS2.
 """
 
 from __future__ import annotations
@@ -18,14 +18,16 @@ import chess.engine
 from coach import CoachError, ExplainService
 
 
-METHOD_VERSION = "knightfall-ep-v1"
+METHOD_VERSION = "knightfall-accuracy-v2"
 METHOD_NOTE = (
-    "Local estimate, not Chess.com CAPS2. Categories use Chess.com's published "
+    "Lichess-style local estimate, not Chess.com CAPS2. Categories use Chess.com's published "
     "expected-points loss ranges. Expected points come from Stockfish's self-play "
-    "win/draw/loss model, not Chess.com's player-rating model. Each move is reviewed "
-    "at full strength with a bounded search; deeper analysis can change the result. "
-    "Move accuracy uses a local exponential curve and each side's report averages "
-    "its scored moves equally."
+    "win/draw/loss model, not Chess.com's player-rating model. Best requires the "
+    "strongest searched choice; rounded WDL ties alone do not qualify. Numeric "
+    "accuracy uses Lichess's published centipawn-to-win-percent and move curves, "
+    "then combines volatility-weighted and harmonic means. We compare the best "
+    "and played choices at each position; this is not a reproduction of either "
+    "website's analysis. All searches use full strength with a bounded time budget."
 )
 
 
@@ -33,8 +35,8 @@ class AccuracyError(CoachError):
     pass
 
 
-def _classification(loss: float) -> str:
-    if loss <= 0:
+def _classification(loss: float, *, is_best: bool = False) -> str:
+    if is_best:
         return "Best"
     if loss < 0.02:
         return "Excellent"
@@ -47,17 +49,46 @@ def _classification(loss: float) -> str:
     return "Blunder"
 
 
-def _metrics(best: float, played: float) -> dict:
+def _metrics(best: float, played: float, *, is_best: bool = False) -> dict:
     best = max(best, played)
     # Native WDL expectations have finite decimal precision. Decimal subtraction
     # preserves exact threshold boundaries (e.g. .55 - .50), without rounding loss.
     loss = float(Decimal(str(best)) - Decimal(str(played)))
-    accuracy = 100 * (math.exp(-4 * loss) - math.exp(-4)) / (1 - math.exp(-4))
     return {
         "expectedPointsBefore": best, "expectedPointsAfter": played,
-        "expectedPointsLoss": loss, "classification": _classification(loss),
-        "moveAccuracy": min(100.0, max(0.0, accuracy)),
+        "expectedPointsLoss": loss, "classification": _classification(loss, is_best=is_best),
     }
+
+
+def _win_percent(score: dict, color: chess.Color) -> float:
+    """Published Lichess curve, mover POV; mates use its signed CP ceiling.
+
+    https://github.com/lichess-org/scalachess/blob/master/core/src/main/scala/eval.scala
+    This human-game proxy deliberately stays separate from native WDL grading.
+    It does not claim a personalized probability or distinguish mate distances.
+    """
+    cp = score["cp"]
+    if score["mate"] is not None:
+        cp = 1000 if score["mate"] > 0 else -1000
+    cp = max(-1000, min(1000, cp)) * (1 if color == chess.WHITE else -1)
+    return 100 / (1 + math.exp(-0.00368208 * cp))
+
+
+def _move_accuracy(before: float, after: float) -> float:
+    """Lichess's published curve including its one-point uncertainty allowance.
+
+    https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala
+    """
+    if after >= before:
+        return 100.0
+    raw = 103.1668100711649 * math.exp(-0.04354415386753951 * (before - after)) - 3.166924740191411 + 1
+    return min(100.0, max(0.0, raw))
+
+
+def _score_order(candidate: dict, color: chess.Color):
+    score = candidate["score"]
+    white = chess.engine.Mate(score["mate"]) if score["mate"] is not None else chess.engine.Cp(score["cp"])
+    return white if color == chess.WHITE else -white
 
 
 def _native_candidate(before: chess.Board, info: dict, root_move=None) -> dict | None:
@@ -148,6 +179,8 @@ class AccuracyService(ExplainService):
             "cancelled": False, "scored": False, "classification": None,
             "expectedPointsBefore": None, "expectedPointsAfter": None, "expectedPointsLoss": None,
             "moveAccuracy": None, "bestMove": None, "bestSan": None,
+            "isBest": None, "winPercentBefore": None, "winPercentAfter": None,
+            "bestScore": {"cp": None, "mate": None},
             "score": {"cp": None, "mate": None}, "depth": None,
             "engine": None, "unavailableReason": None,
         }
@@ -205,18 +238,28 @@ class AccuracyService(ExplainService):
                 return result
             # An immediate win is provably optimal. A sole legal move is also
             # optimal, provided its expected outcome was actually scored.
-            if played is not None and (played["expected"] == 1 or before.legal_moves.count() == 1):
+            if played is not None and ((played["source"] == "exact-outcome" and played["expected"] == 1)
+                                       or before.legal_moves.count() == 1):
                 best = played
             if best is None or played is None:
                 result["unavailableReason"] = "Stockfish did not return reliable native win/draw/loss scores for both choices. Retry this move."
                 return result
+            # Equal terminal outcomes are a proven tie, unlike rounded native WDL.
+            if best["source"] == played["source"] == "exact-outcome" and best["expected"] == played["expected"]:
+                best = played
             # The played move is a legal candidate too: shallow search noise
             # must not produce negative loss or an inferior stated best move.
-            if played["expected"] > best["expected"]:
+            if (played["expected"] > best["expected"]
+                    or played["expected"] == best["expected"] and _score_order(played, before.turn) > _score_order(best, before.turn)):
                 best = played
-            result.update(_metrics(best["expected"], played["expected"]))
+            is_best = best["move"] == move
+            win_after = _win_percent(played["score"], before.turn)
+            win_before = max(win_after, _win_percent(best["score"], before.turn))
+            result.update(_metrics(best["expected"], played["expected"], is_best=is_best))
             result.update({
                 "scored": True, "bestMove": best["move"].uci(), "bestSan": before.san(best["move"]),
+                "isBest": is_best, "winPercentBefore": win_before, "winPercentAfter": win_after,
+                "moveAccuracy": _move_accuracy(win_before, win_after), "bestScore": best["score"],
                 "score": played["score"], "depth": played["depth"], "bestDepth": best["depth"],
                 "wdlBefore": best["wdl"], "wdlAfter": played["wdl"],
                 "scoreSource": played["source"],

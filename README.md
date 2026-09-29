@@ -102,8 +102,8 @@ The categories use [Chess.com's published expected-points-loss thresholds](https
 
 | Category | Expected points lost |
 | --- | --- |
-| Best | 0 |
-| Excellent | Greater than 0 and less than 0.02 |
+| Best | 0, and the strongest searched choice or a proven equal terminal outcome |
+| Excellent | 0 to less than 0.02 for other moves |
 | Good | 0.02 to less than 0.05 |
 | Inaccuracy | 0.05 to less than 0.10 |
 | Mistake | 0.10 to less than 0.20 |
@@ -123,13 +123,43 @@ and the played move, evaluated from the same position with its full history.
 Immediate terminal outcomes use the chess rules. Bounded engine scores and
 missing WDL results are excluded.
 
-Method `knightfall-ep-v1` converts each loss `L` to a local 0–100 estimate with
-`100 * (exp(-4 * L) - exp(-4)) / (1 - exp(-4))`, clamped to 0–100. Each side's
-score is the arithmetic mean of its scored moves. This transparent curve is our
-own mapping, not the unpublished CAPS2 calculation. Longer searches can change
-scores and labels; matching thresholds does not guarantee matching Chess.com
-results. Brilliant, Great, Book, and Miss require additional rules and are not
-inferred from these six thresholds.
+Rounded WDL values often tie at 0 or 1 in decided positions. Such ties alone
+cannot earn **Best** or replace Stockfish's preferred move. We preserve the
+stronger centipawn/mate evaluation when WDL ties. A proven checkmate, sole legal
+move, or equal exact terminal outcome can also qualify as Best.
+
+Method `knightfall-accuracy-v2` uses a **Lichess-style local numeric estimate**,
+separate from the native-WDL category calculation. It replaces the original
+arbitrary exponential curve and arithmetic average, which inflated reports
+when many later moves had saturated WDL values. The mathematical definitions
+come from [Lichess's public accuracy explanation](https://lichess.org/page/accuracy),
+its [current accuracy definition](https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala),
+and its [win-percent conversion](https://github.com/lichess-org/scalachess/blob/master/core/src/main/scala/eval.scala),
+checked on 2026-09-29:
+
+- Convert mover-relative centipawns `cp` to `W = 100 / (1 + exp(-0.00368208 * cp))`,
+  clamping `cp` to ±1000. Mates use the same signed ceiling, without inventing
+  a centipawn value for each mate distance.
+- For the nonnegative drop `D` between the best and played choices, move
+  accuracy is `103.1668100711649 * exp(-0.04354415386753951 * D) - 3.166924740191411 + 1`,
+  clamped to 0–100. A nonpositive drop scores 100. The added point is the
+  published allowance for imperfect analysis.
+- The game estimate averages a volatility-weighted mean with a harmonic mean.
+  For `N` plies, the rolling window is `clamp(floor(N / 10), 2, 8)` positions;
+  weights are population standard deviations of White's win percentages,
+  clamped to 0.5–12. The first window is repeated for the initial moves as
+  necessary. Harmonic denominators use `max(1, moveAccuracy)`. Missing evaluation
+  windows receive the minimum weight in provisional reports; no missing move
+  is filled with a perfect score.
+
+Our inputs compare best/played root searches and use the searched initial
+position rather than a fixed opening evaluation. This is **not an exact
+reproduction of Lichess or Chess.com**. High scores remain possible in already
+decided positions; the model does not penalize every extra move taken to mate.
+Longer searches can change scores and labels. Matching category thresholds
+does not mean matching Chess.com's rating-aware model. Brilliant, Great, Book,
+and Miss require additional rules and are not inferred here. Old v1 reports
+are invalidated and recomputed when opened.
 
 ## Analysis arrows
 

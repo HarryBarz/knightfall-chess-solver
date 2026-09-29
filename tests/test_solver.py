@@ -700,7 +700,7 @@ class SolverAPITest(unittest.TestCase):
                    "strength": 10, "forgiving": True}
         grade = self.post("/api/accuracy", payload)
         self.assertTrue(grade["scored"], grade)
-        self.assertEqual(grade["methodVersion"], "knightfall-ep-v1")
+        self.assertEqual(grade["methodVersion"], "knightfall-accuracy-v2")
         self.assertEqual(grade["strength"], 100)
         self.assertFalse(grade["forgiving"])
         self.assertEqual(grade["moves"], moves)
@@ -712,11 +712,14 @@ class SolverAPITest(unittest.TestCase):
         self.assertGreaterEqual(grade["expectedPointsLoss"], 0.20)
         self.assertGreaterEqual(grade["moveAccuracy"], 0)
         self.assertLess(grade["moveAccuracy"], 100)
+        self.assertFalse(grade["isBest"])
+        self.assertGreater(grade["winPercentBefore"], grade["winPercentAfter"])
         mate = self.post("/api/accuracy", {**payload, "requestId": str(uuid.uuid4()), "ply": 4})
         self.assertEqual(mate["classification"], "Best")
         self.assertEqual(mate["move"]["color"], "black")
         self.assertEqual(mate["expectedPointsAfter"], 1)
         self.assertEqual(mate["moveAccuracy"], 100)
+        self.assertTrue(mate["isBest"])
         self.assertEqual(self.position(moves), position)
 
     def test_accuracy_validates_history_and_precancellation(self):

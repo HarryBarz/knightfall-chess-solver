@@ -2,8 +2,9 @@
 
 (() => {
   const $ = (id) => document.getElementById(id);
-  const METHOD = "knightfall-ep-v1";
-  const STORE = "knightfall.accuracy.v1";
+  const math = globalThis.KnightfallAccuracyMath;
+  const METHOD = math.METHOD_VERSION;
+  const STORE = math.STORE_KEY;
   const CATEGORIES = ["Best", "Excellent", "Good", "Inaccuracy", "Mistake", "Blunder"];
   const session = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const records = new Map();
@@ -37,10 +38,10 @@
     const startsBlack = match.initialFen.split(" ")[1] === "b";
     return Boolean((ply - 1) % 2) !== startsBlack ? "black" : "white";
   }
-  function classification(loss) {
-    return loss === 0 ? "Best" : loss < .02 ? "Excellent" : loss < .05 ? "Good" : loss < .10 ? "Inaccuracy" : loss < .20 ? "Mistake" : "Blunder";
+  function validScore(score) {
+    return Boolean(score && ((Number.isFinite(score.cp) && score.mate === null)
+      || (score.cp === null && Number.isFinite(score.mate))));
   }
-  function accuracy(loss) { return 100 * (Math.exp(-4 * loss) - Math.exp(-4)) / (1 - Math.exp(-4)); }
 
   function validRow(value, match, ply) {
     if (!value || value.methodVersion !== METHOD || value.ply !== ply || value.strength !== 100 || value.forgiving !== false
@@ -52,10 +53,9 @@
     const before = historical?.beforeFen || (ply === 1 ? match.initialFen : match.history?.[ply - 2]?.afterFen);
     if (before && value.beforeFen !== before) return false;
     if (value.scored === false) return value.moveAccuracy === null && value.expectedPointsLoss === null
-      && value.classification === null && typeof value.unavailableReason === "string";
-    if (value.scored !== true || !Number.isFinite(value.expectedPointsLoss) || value.expectedPointsLoss < 0 || value.expectedPointsLoss > 1
-      || !Number.isFinite(value.moveAccuracy) || value.moveAccuracy < 0 || value.moveAccuracy > 100) return false;
-    return value.classification === classification(value.expectedPointsLoss) && Math.abs(value.moveAccuracy - accuracy(value.expectedPointsLoss)) <= .06;
+      && value.classification === null && value.isBest === null && value.winPercentBefore === null && value.winPercentAfter === null
+      && typeof value.unavailableReason === "string";
+    return math.validMetrics(value) && validScore(value.bestScore) && validScore(value.score);
   }
 
   function storedRow(value) {
@@ -63,6 +63,10 @@
       positionFen: value.positionFen, move: { uci: value.move.uci, san: value.move.san, color: value.move.color },
       scored: value.scored, classification: value.scored ? value.classification : null,
       expectedPointsLoss: value.scored ? value.expectedPointsLoss : null, moveAccuracy: value.scored ? value.moveAccuracy : null,
+      isBest: value.scored ? value.isBest : null, winPercentBefore: value.scored ? value.winPercentBefore : null,
+      winPercentAfter: value.scored ? value.winPercentAfter : null,
+      bestScore: value.scored ? { cp: value.bestScore.cp, mate: value.bestScore.mate } : null,
+      score: value.scored ? { cp: value.score.cp, mate: value.score.mate } : null,
       unavailableReason: value.scored ? "" : value.unavailableReason.slice(0, 600) };
   }
 
@@ -136,6 +140,8 @@
     panel.dataset.model = METHOD;
     panel.innerHTML = `
       <div class="accuracy-heading"><div><p class="accuracy-eyebrow">THE MATCH IN NUMBERS</p><h2 id="${prefix}-heading">Accuracy estimate</h2></div><span class="accuracy-model-badge">Local · full strength</span></div>
+      <p id="${prefix}-method-label" class="accuracy-coverage"><strong>Lichess-style local estimate · Not Chess.com CAPS2</strong></p>
+      <p class="accuracy-coverage">Accuracy numbers follow Lichess-style formulas. Move labels use Stockfish expected-point loss; Best means the engine’s chosen move. These two measures can differ.</p>
       <p id="${prefix}-status" class="accuracy-status" role="status" aria-live="polite"></p>
       <div class="accuracy-progress-row"><progress id="${prefix}-progress" max="1" value="0" aria-label="Moves processed for accuracy"></progress><span id="${prefix}-progress-label"></span><button id="${prefix}-pause" type="button" class="accuracy-text-button">Pause</button></div>
       <div class="accuracy-sides">${["white", "black"].map((color) => `
@@ -148,11 +154,15 @@
       <div id="${prefix}-error-box" class="accuracy-error-box" hidden><p id="${prefix}-error"></p><button id="${prefix}-retry" type="button">Retry remaining moves</button></div>
       <details class="accuracy-move-details"><summary>Every move <span id="${prefix}-moves-label"></span></summary><p class="accuracy-moves-help">${name === "review" ? "Select a move to read its lesson on the replay board. " : "Open Match review to explore a move’s explanation. "}EP loss is the drop in expected points, shown in percentage points.</p><div class="accuracy-move-columns" aria-hidden="true"><span>Move</span><span>Classification</span><span>EP loss</span></div><div id="${prefix}-moves" class="accuracy-moves" aria-label="Move classifications"></div></details>
       <details class="accuracy-method"><summary>How this estimate is calculated</summary><div>
-        <p>This is a local Knightfall estimate using full-strength Stockfish win/draw/loss (WDL) evaluations for both sides. It is separate from your playing difficulty and the review teacher setting.</p>
-        <p>Expected points = win probability + half the draw probability, from the player’s perspective. Loss compares the best available move with the move played, floored at zero. The same loss thresholds as <a href="https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc" target="_blank" rel="noopener noreferrer">Chess.com’s published move classifications</a> are used:</p>
-        <dl class="accuracy-thresholds"><div><dt>Best</dt><dd>0 loss</dd></div><div><dt>Excellent</dt><dd>Above 0, below 0.02</dd></div><div><dt>Good</dt><dd>0.02 to below 0.05</dd></div><div><dt>Inaccuracy</dt><dd>0.05 to below 0.10</dd></div><div><dt>Mistake</dt><dd>0.10 to below 0.20</dd></div><div><dt>Blunder</dt><dd>0.20 or more</dd></div></dl>
-        <p>Our per-move score is <code>100 × (exp(−4 × loss) − exp(−4)) / (1 − exp(−4))</code>. Each side’s estimate is the arithmetic mean of its scored moves. This formula is our local scale, not Chess.com’s CAPS2 accuracy or rating-aware classification model.</p>
-        <p>Short searches, engine versions, and WDL calibration can change the result. Moves without a reliable evaluation remain unscored and are excluded from the average; the report stays labeled partial. Imported positions only include moves actually recorded here.</p>
+        <p>This report uses full-strength Stockfish independently of your playing difficulty and review teacher. It uses public <a href="https://lichess.org/page/accuracy" target="_blank" rel="noopener noreferrer">Lichess accuracy formulas</a> with our own best-versus-played search results. It does not reproduce either site’s analysis or accuracy score.</p>
+        <p>The numerical accuracy model converts the mover’s centipawn evaluation to <code>Win% = 100 / (1 + exp(−0.00368208 × cp))</code>, with cp capped at ±1000 and mate scores mapped to the signed cap. This is a model of winning chances, not a measured personal probability.</p>
+        <p>For each move, let <code>D = max(0, Win% before − Win% after)</code>. Accuracy is <code>clamp(103.1668100711649 × exp(−0.04354415386753951 × D) − 3.166924740191411 + 1, 0, 100)</code>, or 100 when winning chances do not decrease. The +1 allowance is part of the <a href="https://github.com/lichess-org/lila/blob/master/modules/analyse/src/main/AccuracyPercent.scala" target="_blank" rel="noopener noreferrer">current public calculation</a>.</p>
+        <p>The game score combines two averages for each side: <code>score = (volatility-weighted mean + harmonic mean) / 2</code>. This gives a serious error more influence than a simple move average. Harmonic mean is <code>n / sum(1 / max(1, move accuracy))</code>.</p>
+        <p>Volatility comes from the initial position and every subsequent position, expressed as White’s Win%. For <code>N</code> recorded turns, the window length is <code>w = clamp(floor(N / 10), 2, 8)</code>. For turn index <code>i</code> starting at zero, take the full window beginning at <code>max(0, i − w + 2)</code>. The move’s weight is the window’s population standard deviation, limited to 0.5–12. Initial turns share the first full window.</p>
+        <p>Move classifications use a separate input: native Stockfish WDL expected points = win probability + half the draw probability. Expected-point loss compares the best and played moves, floored at zero. We use the numerical loss bands from <a href="https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc" target="_blank" rel="noopener noreferrer">Chess.com’s published classifications</a>, while Best requires the actual engine choice:</p>
+        <dl class="accuracy-thresholds"><div><dt>Best</dt><dd>Engine’s chosen move</dd></div><div><dt>Excellent</dt><dd>Other move: 0 to below 0.02</dd></div><div><dt>Good</dt><dd>0.02 to below 0.05</dd></div><div><dt>Inaccuracy</dt><dd>0.05 to below 0.10</dd></div><div><dt>Mistake</dt><dd>0.10 to below 0.20</dd></div><div><dt>Blunder</dt><dd>0.20 or more</dd></div></dl>
+        <p>Stockfish WDL describes engine self-play, unlike Chess.com’s rating-based expected-points model. An Excellent label can coexist with a lower numerical move accuracy because those measures use different probability models.</p>
+        <p>Short searches and engine versions can change both measures. Missing moves remain unscored; their evaluations are never invented or joined across gaps. Scored moves whose volatility window is incomplete receive the minimum weight of 0.5, and the entire report stays provisional until every move is scored. Imported positions only include the moves recorded here.</p>
         <p class="accuracy-method-version">Method: ${METHOD}</p>
       </div></details>`;
     host.append(panel);
@@ -216,6 +226,9 @@
       item.dataset.color = color;
       item.dataset.category = row?.classification || (row ? "Unscored" : "Pending");
       item.dataset.moveAccuracy = row?.scored ? String(row.moveAccuracy) : "";
+      item.dataset.winPercentBefore = row?.scored ? String(row.winPercentBefore) : "";
+      item.dataset.winPercentAfter = row?.scored ? String(row.winPercentAfter) : "";
+      item.dataset.isBest = row?.scored ? String(row.isBest) : "";
       item.append(element("strong", "accuracy-move-san", moveLabel(match, index, row)),
         element("span", `accuracy-category accuracy-category-${row?.classification?.toLowerCase() || "pending"}`, row?.classification || (row ? "Unscored" : "Waiting…")),
         element("span", "accuracy-move-loss", row?.scored ? `${(row.expectedPointsLoss * 100).toFixed(1)} pp` : "—"));
@@ -235,6 +248,7 @@
     if (!record) return;
     const prefix = view.prefix;
     const { processed, scored, unavailable, total } = counts(record);
+    const aggregation = math.aggregateAccuracy(record.rows, match.initialFen.split(" ")[1] === "b" ? "black" : "white");
     const complete = total > 0 && scored === total;
     const waiting = selectedKey() !== key || document.hidden || live?.ready === false || !reviewActive && live?.suspended;
     const status = !total ? "empty" : complete ? "complete" : record.error ? "error" : processed === total ? "incomplete"
@@ -264,24 +278,27 @@
     pause.setAttribute("aria-label", `${record.paused ? "Resume" : "Pause"} accuracy analysis`);
     for (const color of ["white", "black"]) {
       const rows = record.rows.filter((row) => row?.scored && row.move.color === color);
-      const expected = match.moves.filter((_, index) => moveColor(match, index + 1) === color).length;
-      const score = rows.length ? rows.reduce((sum, row) => sum + row.moveAccuracy, 0) / rows.length : null;
+      const side = aggregation.sides[color];
+      const expected = side.total;
+      const score = side.score;
       const card = $(`${prefix}-${color}`);
       card.dataset.score = score === null ? "" : String(score);
       card.dataset.scored = String(rows.length);
+      card.dataset.weightedMean = side.weightedMean === null ? "" : String(side.weightedMean);
+      card.dataset.harmonicMean = side.harmonicMean === null ? "" : String(side.harmonicMean);
       $(`${prefix}-${color}-score`).textContent = score === null ? "—" : score.toFixed(1);
       $(`${prefix}-${color}-owner`).textContent = match.solver === color ? "Solver" : "You";
       $(`${prefix}-${color}-sample`).textContent = `${rows.length} / ${expected} moves scored`;
-      $(`${prefix}-${color}-qualifier`).textContent = !rows.length ? "No scored moves" : complete ? "Accuracy estimate" : "Provisional estimate";
+      $(`${prefix}-${color}-qualifier`).textContent = !rows.length ? "No scored moves" : side.provisional ? "Provisional estimate" : "Accuracy estimate";
       for (const category of CATEGORIES) {
         const count = rows.filter((row) => row.classification === category).length;
         const cell = card.querySelector(`[data-category-count="${category}"]`);
         cell.dataset.count = String(count); cell.textContent = String(count);
       }
     }
-    $(`${prefix}-coverage`).textContent = complete ? "Both sides use the same full-strength reference. These are local estimates, independent of your playing difficulty."
+    $(`${prefix}-coverage`).textContent = complete ? "Both sides use the same full-strength reference. Scores combine volatility-weighted and harmonic averages, independent of your playing difficulty."
       : !total ? "An imported board alone cannot reveal the accuracy of earlier moves."
-      : `${scored} scored · ${unavailable} unscored · ${total - processed} waiting. Partial averages and counts can change as more moves are analyzed.`;
+      : `${scored} scored · ${unavailable} unscored · ${total - processed} waiting. Scores and classifications are provisional until analysis finishes.`;
     $(`${prefix}-error-box`).hidden = !record.error && !(processed === total && unavailable);
     $(`${prefix}-error`).textContent = record.error || `${unavailable} ${unavailable === 1 ? "move could" : "moves could"} not be scored. Retry those moves to finish the report.`;
     $(`${prefix}-retry`).textContent = record.error ? "Retry remaining moves" : "Retry unscored moves";

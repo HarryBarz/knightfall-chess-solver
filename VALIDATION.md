@@ -2,7 +2,67 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
-## After-match accuracy estimates (2026-09-29)
+## Accuracy inflation correction, method v2 (2026-09-29)
+
+A supplied 48-ply PGN and Chess.com summary exposed a limitation not caught by
+the original implementation tests. The screenshot reports White **76.5** and
+Black **94.2**. Replaying every move through native Stockfish reproduced the
+inflated local scores:
+
+| Calculation | White | Black |
+| --- | ---: | ---: |
+| Original v1, 0.45s best / 0.40s played searches | 91.83 | 98.23 |
+| Original v1, 2s best / 1.78s played searches | 91.96 | 97.65 |
+| New v2, 0.45s best / 0.40s played searches | 77.82 | 97.76 |
+| Supplied Chess.com summary | 76.5 | 94.2 |
+
+Both original runs gave the last **17 White moves** and **18 Black moves** 100:
+native self-play expected points had saturated at 0 and 1. An arithmetic mean
+then diluted the earlier errors. Zero expected-points loss also incorrectly
+implied Best, and a nonterminal WDL expectation of 1 replaced the engine's
+preferred root move as if it were a proven checkmate. The longer searches did
+not resolve those structural issues.
+
+V2 preserves the best searched evaluation, distinguishes rounded WDL ties from
+proven terminal ties, and uses the published Lichess-style numeric formulas and
+weighted/harmonic aggregation documented in README. Full-strength native WDL
+still supplies the Chess.com category thresholds. This is an explicit hybrid
+local estimate, not either website's exact metric. No coefficient was fitted
+to this game. Black's remaining discrepancy is not resolved, and one game does
+not establish calibration. The bounded search can change scores between runs.
+The published CP ceiling still permits some weaker moves in decided positions
+to receive 100 numerically; they no longer automatically receive Best.
+
+Executed checks:
+
+```sh
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python -m unittest discover -s tests -v
+node --test tests/accuracy_math.test.mjs
+node scripts/accuracy_smoke.mjs http://127.0.0.1:8877
+git diff --check
+```
+
+All **111 Python tests passed in 45.682s**, including regression tests that
+first failed on the recorded saturated-WDL patterns. **21 Node tests passed**
+for the public numeric curves, window alignment, weighting, harmonic averaging,
+color mirroring, Black-start imports, sparse/unavailable evaluations, method
+version validation, and browser loading. The native Chrome report suite passed
+in **15.1s**, verifying both numeric side totals, category counts, replay badges,
+full-strength isolation, cancellation/retry, valid v2 cache reuse, and mandatory
+recalculation of a legacy v1 report. Desktop and mobile report captures were
+generated; the mobile layout was visually inspected. An initial sandboxed
+Python run could not bind its temporary HTTP server; the complete suite above
+was rerun successfully with the required local-server permission.
+
+Local diagnostic traces are in ignored `artifacts/accuracy-comparison-*.json`;
+the supplied PGN and its full move trace are not added to the repository. The
+v2 side totals were checked using the production JavaScript aggregator against
+an independent Python calculation over the same 48 scored rows.
+
+## Original after-match accuracy estimates, method v1 (2026-09-29)
+
+The following records the original implementation checks, superseded by the
+scoring correction and comparison above.
 
 Executed with native Stockfish 19 and headless Chrome on macOS:
 
@@ -276,7 +336,7 @@ The recognition asset build and JavaScript syntax checks passed. All seven vendo
 
 ## Limits
 
-No comparison match against Chess.com was executed. Practice strength maps to Stockfish skill levels; it is not a measured accuracy score or calibrated win rate. Forgiving mode lowers strength without forcing a loss, and 100% enables unrestricted strength at the requested search time without promising perfect play. These settings do not prevent online fair-play enforcement. Cloud hosting, website automation, and chess variants are outside this implementation.
+No playing-strength matchup against Chess.com was executed. The supplied-game accuracy comparison is recorded above. Practice strength maps to Stockfish skill levels; it is not a measured accuracy score or calibrated win rate. Forgiving mode lowers strength without forcing a loss, and 100% enables unrestricted strength at the requested search time without promising perfect play. These settings do not prevent online fair-play enforcement. Cloud hosting, website automation, and chess variants are outside this implementation.
 
 Move notes are structured board facts and brief Stockfish estimates, not a natural-language reasoning model or an account of a player's intention. Review applies the chosen practice profile but ranks candidate evaluations; it does not reproduce randomized weaker move selection. Separate engine processes avoid sharing the playing search lock but still consume resources on the same computer.
 

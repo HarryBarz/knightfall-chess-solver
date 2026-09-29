@@ -15,7 +15,7 @@ import uuid
 import chess
 import chess.engine
 
-from accuracy import AccuracyError, AccuracyService, METHOD_VERSION, _classification, _metrics, _native_candidate, _terminal_candidate
+from accuracy import AccuracyError, AccuracyService, METHOD_VERSION, _classification, _metrics, _move_accuracy, _native_candidate, _terminal_candidate, _win_percent
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,40 +29,101 @@ def game(sans, fen=chess.STARTING_FEN):
     return board
 
 
-def frame(board, move, *, wins=600, draws=300, losses=100):
+def frame(board, move, *, wins=600, draws=300, losses=100, cp=50, mate=None):
     return {
         "pv": [board.parse_san(move)], "depth": 12,
-        "score": chess.engine.PovScore(chess.engine.Cp(50), chess.WHITE),
+        "score": chess.engine.PovScore(chess.engine.Mate(mate) if mate is not None else chess.engine.Cp(cp), chess.WHITE),
         "wdl": chess.engine.PovWdl(chess.engine.Wdl(wins, draws, losses), chess.WHITE),
     }
 
 
 class AccuracyRulesTest(unittest.TestCase):
+    def review_frames(self, before, played_san, best_frame, played_frame=None):
+        board = before.copy()
+        board.push_san(played_san)
+        candidates = [_native_candidate(before, best_frame)]
+        if played_frame is not None:
+            candidates.append(_native_candidate(before, played_frame, before.parse_san(played_san)))
+        self.assertTrue(all(candidate is not None for candidate in candidates))
+        engine = Mock()
+        engine.options = {name: None for name in ["Threads", "Hash", "Skill Level", "UCI_LimitStrength", "UCI_ShowWDL"]}
+        engine.id = {"name": "recorded-native-frames"}
+        service = AccuracyService(None)
+        with patch.object(service, "_get_engine", return_value=engine), patch.object(service, "_search", side_effect=candidates):
+            return service.review(board, uuid.uuid4().hex, len(board.move_stack))
+
+    def test_zero_expected_points_does_not_call_a_worse_move_best(self):
+        # Recorded 14.Bxh7: both native WDLs are 0/0/1000, but the root
+        # search preferred Rg1 (-9.11) to Bxh7 (-10.72), White perspective.
+        before = chess.Board("r1bqk2b/p2n3p/2p5/1p1p4/8/2PB1P2/PP3P1P/RN2K2R w KQq - 1 14")
+        result = self.review_frames(before, "Bxh7",
+                                    frame(before, "Rg1", cp=-911, wins=0, draws=0, losses=1000),
+                                    frame(before, "Bxh7", cp=-1072, wins=0, draws=0, losses=1000))
+        self.assertEqual(result["bestMove"], before.parse_san("Rg1").uci())
+        self.assertEqual(result["expectedPointsLoss"], 0)
+        self.assertEqual(result["classification"], "Excellent")
+        self.assertFalse(result["isBest"])
+        self.assertEqual(result["bestScore"], {"cp": -911, "mate": None})
+        self.assertLess(result["moveAccuracy"], 100)
+
+    def test_certain_native_wdl_win_does_not_replace_the_better_root_move(self):
+        # Recorded winning-side mirror: 21...Qg4+ retained WDL 1 despite
+        # the unrestricted search finding Rg8 with a shorter mating line.
+        before = chess.Board("r6b/p2k4/2p5/1p1pnb2/7P/N1P1Rq2/PP3P2/6KR b - - 5 21")
+        result = self.review_frames(before, "Qg4+",
+                                    frame(before, "Rg8", mate=-3, wins=0, draws=0, losses=1000),
+                                    frame(before, "Qg4+", mate=-9, wins=0, draws=0, losses=1000))
+        self.assertEqual(result["bestMove"], before.parse_san("Rg8").uci())
+        self.assertEqual(result["expectedPointsLoss"], 0)
+        self.assertEqual(result["classification"], "Excellent")
+        self.assertFalse(result["isBest"])
+
+    def test_actual_checkmate_can_override_a_different_searched_root_move(self):
+        before = game(["f3", "e5", "g4"])
+        result = self.review_frames(before, "Qh4#", frame(before, "Nf6", cp=-100, wins=200, draws=400, losses=400))
+        self.assertEqual(result["bestMove"], before.parse_san("Qh4#").uci())
+        self.assertEqual(result["classification"], "Best")
+        self.assertEqual(result["moveAccuracy"], 100)
+        self.assertEqual(result["scoreSource"], "exact-outcome")
+
     def test_published_category_boundaries_are_not_rounded(self):
         for loss, expected in [
-            (0, "Best"), (0.000001, "Excellent"), (0.0199999, "Excellent"),
+            (0, "Excellent"), (0.000001, "Excellent"), (0.0199999, "Excellent"),
             (0.02, "Good"), (0.0499999, "Good"), (0.05, "Inaccuracy"),
             (0.0999999, "Inaccuracy"), (0.10, "Mistake"),
             (0.1999999, "Mistake"), (0.20, "Blunder"), (1, "Blunder"),
         ]:
             with self.subTest(loss=loss):
                 self.assertEqual(_classification(loss), expected)
+        self.assertEqual(_classification(0, is_best=True), "Best")
         self.assertEqual(_metrics(0.55, 0.5)["classification"], "Inaccuracy")
         self.assertEqual(_metrics(0.6, 0.5)["classification"], "Mistake")
         self.assertEqual(_metrics(0.7, 0.5)["classification"], "Blunder")
 
-    def test_local_curve_is_bounded_monotonic_and_clamps_search_noise(self):
-        results = [_metrics(1, index / 100) for index in range(101)]
-        scores = [result["moveAccuracy"] for result in results]
+    def test_public_move_curve_is_bounded_monotonic_and_clamps_search_noise(self):
+        scores = [_move_accuracy(100, index) for index in range(101)]
         self.assertEqual(scores[0], 0)
         self.assertEqual(scores[-1], 100)
         self.assertEqual(sorted(scores), scores)
-        for result in results:
-            self.assertTrue(math.isfinite(result["moveAccuracy"]))
+        self.assertTrue(all(math.isfinite(score) for score in scores))
+        self.assertAlmostEqual(_move_accuracy(80, 70), 64.57982845372067)
+        self.assertAlmostEqual(_move_accuracy(50, 45), 80.81529992041436)
+        self.assertEqual(_move_accuracy(60, 61), 100)
         noise = _metrics(0.60, 0.61)
         self.assertEqual(noise["expectedPointsBefore"], 0.61)
         self.assertEqual(noise["expectedPointsLoss"], 0)
-        self.assertEqual(noise["moveAccuracy"], 100)
+        self.assertEqual(noise["classification"], "Excellent")
+
+    def test_win_percentage_uses_mover_perspective_and_bounded_cp_or_mate(self):
+        self.assertEqual(_win_percent({"cp": 0, "mate": None}, chess.WHITE), 50)
+        self.assertAlmostEqual(_win_percent({"cp": 100, "mate": None}, chess.WHITE), 59.10258971916129)
+        self.assertAlmostEqual(_win_percent({"cp": 100, "mate": None}, chess.BLACK), 40.89741028083871)
+        for color in [chess.WHITE, chess.BLACK]:
+            self.assertEqual(_win_percent({"cp": 1000, "mate": None}, color), _win_percent({"cp": 5000, "mate": None}, color))
+            self.assertEqual(_win_percent({"cp": -1000, "mate": None}, color), _win_percent({"cp": -5000, "mate": None}, color))
+            self.assertEqual(_win_percent({"cp": None, "mate": 3}, color), _win_percent({"cp": 1000, "mate": None}, color))
+            self.assertEqual(_win_percent({"cp": None, "mate": -9}, color), _win_percent({"cp": -1000, "mate": None}, color))
+        self.assertGreater(_win_percent({"cp": -911, "mate": None}, chess.WHITE), _win_percent({"cp": -1072, "mate": None}, chess.WHITE))
 
     def test_white_and_black_use_actual_movers_native_expectation(self):
         white = chess.Board()
@@ -226,6 +287,7 @@ class AccuracyRuntimeTest(unittest.TestCase):
         self.assertEqual(result["expectedPointsBefore"], 0.5)
         self.assertEqual(result["expectedPointsAfter"], 0.5)
         self.assertEqual(result["classification"], "Best")
+        self.assertEqual(result["moveAccuracy"], 100)
 
     def test_cancel_during_search_and_latest_request_wins(self):
         board = game(["e4", "e5", "Nf3"])

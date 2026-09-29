@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
+import accuracyMath from '../web/accuracy-math.js';
 
 const started = Date.now();
 const progress = message => console.log(`[accuracy +${((Date.now() - started) / 1000).toFixed(1)}s] ${message}`);
@@ -93,7 +94,7 @@ try {
     return {
       status: panel.dataset.status, model: panel.dataset.model, gameKey: panel.dataset.gameKey,
       text: panel.textContent, links: Array.from(panel.querySelectorAll('a[href]'), link => link.href),
-      rows: Array.from(panel.querySelectorAll('[data-accuracy-ply]'), row => ({ ply: Number(row.dataset.accuracyPly), category: row.dataset.category, color: row.dataset.color, accuracy: Number(row.dataset.moveAccuracy) })),
+      rows: Array.from(panel.querySelectorAll('[data-accuracy-ply]'), row => ({ ply: Number(row.dataset.accuracyPly), category: row.dataset.category, color: row.dataset.color, accuracy: Number(row.dataset.moveAccuracy), winPercentBefore: Number(row.dataset.winPercentBefore), winPercentAfter: Number(row.dataset.winPercentAfter) })),
       sides: Array.from(panel.querySelectorAll('[data-accuracy-color]'), side => ({ color: side.dataset.accuracyColor, score: Number(side.dataset.score) })),
       counts: Array.from(panel.querySelectorAll('[data-category-count][data-color]'), count => ({ category: count.dataset.categoryCount, color: count.dataset.color, count: Number(count.dataset.count) })),
     };
@@ -101,7 +102,7 @@ try {
   const categories = ['Best', 'Excellent', 'Good', 'Inaccuracy', 'Mistake', 'Blunder'];
   const validateReport = (report, expectedPlies, results = []) => {
     assert.equal(report.status, 'complete');
-    assert.equal(report.model, 'knightfall-ep-v1');
+    assert.equal(report.model, accuracyMath.METHOD_VERSION);
     assert.ok(report.gameKey);
     assert.equal(report.rows.length, expectedPlies, 'A complete report grades every recorded turn once');
     assert.deepEqual(report.rows.map(row => row.ply).sort((a, b) => a - b), Array.from({ length: expectedPlies }, (_, index) => index + 1));
@@ -118,9 +119,9 @@ try {
     for (const color of ['white', 'black']) {
       const side = report.sides.find(item => item.color === color);
       assert.ok(side && Number.isFinite(side.score) && side.score >= 0 && side.score <= 100, `${color} needs a finite estimated score`);
-      const sideRows = report.rows.filter(row => row.color === color);
-      const mean = sideRows.reduce((sum, row) => sum + row.accuracy, 0) / sideRows.length;
-      assert.ok(Math.abs(side.score - mean) < .000001, 'Each side score averages its scored moves equally');
+      const expectedScore = accuracyMath.aggregateAccuracy(report.rows.map(row => ({ ...row, scored: true,
+        move: { color: row.color }, moveAccuracy: row.accuracy })), report.rows[0].color).sides[color].score;
+      assert.ok(Math.abs(side.score - expectedScore) < .000001, 'Each side combines weighted and harmonic means');
       let total = 0;
       for (const category of categories) {
         const count = report.counts.find(item => item.color === color && item.category.toLowerCase() === category.toLowerCase());
@@ -132,6 +133,8 @@ try {
       assert.equal(total, report.rows.filter(row => row.color === color).length);
     }
     assert.match(report.text, /estimate/i, 'Scores must be labeled as estimates');
+    assert.match(report.text, /Lichess-style local estimate/);
+    assert.match(report.text, /Not Chess.com CAPS2/);
     assert.ok(report.links.some(link => /^https:\/\/(?:[^/]+\.)?chess\.com\//.test(link)), 'Category reference links to the documented Chess.com source');
   };
 
@@ -207,7 +210,7 @@ try {
     assert.equal(result.strength, 100);
     assert.equal(result.forgiving, false);
     assert.equal(result.skillLevel, 20);
-    assert.equal(result.methodVersion, 'knightfall-ep-v1');
+    assert.equal(result.methodVersion, accuracyMath.METHOD_VERSION);
     assert.ok(result.depth > 0 || result.ply === 4, 'Scored results carry search evidence');
   }
   const finishedReport = await readReport();
@@ -222,7 +225,7 @@ try {
   await evaluate('document.querySelector("#accuracy-report").scrollIntoView({ block: "start" })');
   await capture('accuracy-desktop');
   const persisted = await evaluate('Object.keys(localStorage).filter(key => key.includes("accuracy")).map(key => ({ key, value: localStorage.getItem(key) }))');
-  assert.ok(persisted.some(item => item.value.includes('knightfall-ep-v1')), 'Cached reports are identified by their scoring method version');
+  assert.ok(persisted.some(item => item.key === accuracyMath.STORE_KEY && item.value.includes(accuracyMath.METHOD_VERSION)), 'Cached reports are identified by their scoring method version');
   await evaluate('window.accuracyReloadPending = true');
   await call('Page.reload');
   await until(`!window.accuracyReloadPending && ${complete()} && !document.querySelector('#new-game').disabled`);
@@ -350,6 +353,19 @@ try {
     await capture(width === 390 ? 'accuracy-review-mobile' : 'accuracy-review-narrow');
     await closeReview();
   }
+  await evaluate(`(() => {
+    const legacy = JSON.parse(localStorage.getItem('knightfall.accuracy.v2'));
+    legacy.methodVersion = 'knightfall-ep-v1';
+    for (const game of legacy.games) for (const row of game.rows) if (row) row.methodVersion = legacy.methodVersion;
+    localStorage.setItem('knightfall.accuracy.v1', JSON.stringify(legacy));
+    localStorage.removeItem('knightfall.accuracy.v2');
+    window.accuracyReloadPending = true;
+  })()`);
+  await call('Page.reload');
+  await until(`!window.accuracyReloadPending && ${complete()} && !document.querySelector('#new-game').disabled`);
+  assert.equal(await evaluate('window.accuracyRequests.length'), 4, 'Old v1 reports must be recomputed, never reused as new estimates');
+  validateReport(await readReport(), 4, await evaluate('window.accuracyResponses'));
+  progress('Legacy v1 report was invalidated and all moves were recomputed with v2');
   assert.deepEqual(errors, [], 'Accuracy reports must not emit browser runtime or CSP errors');
   progress('PASS: automatic finished-match scores, native full-strength grading, categories and totals, provisional progress, persistent cache, review navigation and teacher isolation, unfinished/retained review, error retry, engine isolation, stale-response cancellation, and 390/320px layouts');
   console.log('Screenshots: artifacts/accuracy-desktop.png, artifacts/accuracy-review.png, artifacts/accuracy-mobile.png, artifacts/accuracy-narrow.png, artifacts/accuracy-review-mobile.png, artifacts/accuracy-review-narrow.png');
