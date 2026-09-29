@@ -618,6 +618,49 @@ class SolverAPITest(unittest.TestCase):
         self.assertFalse(result["cancelled"], result)
         self.assertEqual(result["move"]["uci"], "e2e4")
 
+    def test_analysis_arrows_match_the_position_and_keep_playing_strength(self):
+        moves = ["e2e4", "e7e5", "f1c4", "b8c6", "d1h5", "g8f6"]
+        position = self.position(moves)
+        payload = {"moves": moves, "requestId": str(uuid.uuid4()),
+                   "lookahead": 3, "strength": 70, "forgiving": False}
+        result = self.post("/api/arrows", payload)
+        self.assertEqual(result["positionFen"], position["fen"])
+        self.assertEqual(result["moves"], moves)
+        self.assertEqual(result["strength"], 70)
+        self.assertFalse(result["cancelled"])
+        self.assertTrue(result["ideas"])
+        self.assertLessEqual(len(result["line"]), 3)
+        board = chess.Board(position["fen"])
+        for step in result["line"]:
+            self.assertEqual(step["beforeFen"], board.fen())
+            board.push_uci(step["move"])
+            self.assertEqual(step["fen"], board.fen())
+        for changes in ({"lookahead": 5}, {"lookahead": 7}, {"lookahead": True},
+                        {"strength": 9}, {"forgiving": "false"}, {"strength": 100, "forgiving": True}):
+            with self.subTest(changes=changes):
+                status, body = self.request("/api/arrows", {**payload, **changes})
+                self.assertEqual(status, 400, body)
+        ident = str(uuid.uuid4())
+        self.post("/api/arrows/stop", {"requestId": ident})
+        cancelled = self.post("/api/arrows", {**payload, "requestId": ident})
+        self.assertTrue(cancelled["cancelled"])
+        self.assertEqual(self.position(moves)["fen"], position["fen"])
+
+    def test_arrow_stop_does_not_cancel_playing_search(self):
+        ident = str(uuid.uuid4())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            playing = executor.submit(self.analyze, seconds=30, requestId=ident)
+            try:
+                time.sleep(0.2)
+                result = self.post("/api/arrows", {"moves": ["e2e4"], "requestId": ident,
+                    "strength": 70, "lookahead": 2})
+                self.assertFalse(result["cancelled"])
+                self.post("/api/arrows/stop", {"requestId": ident})
+                self.assertFalse(playing.done(), "Arrow searches must not replace or cancel playing analysis")
+            finally:
+                self.post("/api/stop", {"requestId": ident})
+                self.assertTrue(playing.result(timeout=10)["cancelled"])
+
     def test_match_review_replays_history_and_validates_selection(self):
         moves = ["f2f3", "e7e5", "g2g4", "d8h4"]
         position = self.position(moves)

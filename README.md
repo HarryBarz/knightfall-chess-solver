@@ -83,6 +83,37 @@ Evaluations are bounded-search estimates from White's perspective, and the
 assessment accounts for which side moved. A screenshot/FEN import can only be
 reviewed from the imported position onward; earlier moves cannot be reconstructed.
 
+## Analysis arrows
+
+Turn on **Analysis arrows** beneath the playing or review board, then choose
+**White**, **Black**, or both. The master switch starts off; your switch choices
+and lookahead setting are remembered in this browser. Arrows update as either
+side moves and follow the replay position during a match review.
+
+Gold arrows belong to White and blue arrows to Black. **Attacks & coordination**
+shows one selected idea for each enabled side. Select another idea to explore
+fork patterns, combined pressure, support, opened lines, or central control.
+Solid arrows describe the current board; support arrows start with a ring.
+These patterns do not by themselves prove that a capture is legal or wins
+material: checks, pins, defenders and the opponent's replies still matter.
+
+**Possible line** shows a legal Stockfish continuation up to **2, 3, 4, or 6
+turns**. Each turn is one player's move. Select a turn to draw the sequence
+through that point. Dashed arrows and numbered badges distinguish projected
+moves from current attacks; a future arrow may begin on a currently empty
+square. Hiding one side's arrows keeps its replies in the written sequence so
+the plan remains understandable. Recognized gambit openings require recorded
+move history; a projected material offer is described as a possibility, not
+proof of sound compensation or the player's intention.
+
+Playing-board lines use your chosen practice difficulty. Review-board lines use
+the review's teacher profile, which defaults to full strength. Analysis runs in
+its own bounded Stockfish process and never plays moves or spends practice
+opportunities. Turning the feature off cancels its work; no arrow searches run
+while it is off or both side switches are off. A short search can return fewer
+turns than requested. The app explains observable patterns and conditional
+lines; it cannot know what either player was thinking.
+
 ## Engine strength and evaluation
 
 The percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
@@ -108,6 +139,7 @@ This is an interface to Stockfish, not a new engine trained from scratch. Stockf
 node scripts/browser_smoke.mjs
 node scripts/screenshot_smoke.mjs
 node scripts/review_smoke.mjs
+node scripts/arrows_smoke.mjs
 ```
 
 The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, practice strength, forgiving mode, cancellation, recovery, and independent move reviews. Extra-inaccuracy checks cover candidate bounds, mate protection, budget/history validation and real-engine selection for both colors. Browser checks cover playing, written reviews, stale responses, extra-inaccuracy counter persistence and responsive layout. They require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
@@ -130,6 +162,8 @@ Package versions are pinned in `package-lock.json`. The build preserves the acco
 - `server.py`: HTTP API, chess rules, game history, and persistent UCI engine.
 - `coach.py`: independent, bounded Stockfish reviews and board-grounded move notes.
 - `match_review.py`: independent post-match lessons, legal continuation steps, and corrections.
+- `arrows.py`: current-board patterns and independent, legal projected lines for both sides.
+- `web/arrows.js`, `web/arrows.css`: optional White/Black learning arrows on playing and replay boards.
 - `web/review.js`, `web/review.css`: replay board, lesson navigation, and variation previews.
 - `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.
 - `web/`: responsive browser interface, using plain HTML, CSS, and JavaScript.

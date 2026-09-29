@@ -10,10 +10,12 @@
   <link rel="stylesheet" href="/workspace.css">
   <link rel="stylesheet" href="/screenshot.css">
   <link rel="stylesheet" href="/review.css">
+  <link rel="stylesheet" href="/arrows.css">
   <script src="/coach.js" defer></script>
   <script src="/screenshot-recognition.js" defer></script>
   <script src="/screenshot.js" defer></script>
   <script src="/review.js" defer></script>
+  <script src="/arrows.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -35,11 +37,12 @@
       <div class="play-workspace">
       <section class="board-panel" aria-label="Chess board and game controls">
         <div class="player-row"><div class="player-info"><span class="player-icon" id="top-player-icon" aria-hidden="true">♚</span><div><strong id="top-player-name">Your engine</strong><span id="top-player-detail">Black · Stockfish</span></div></div><span id="top-player-badge" class="player-badge">ENGINE</span></div>
-        <div class="board-frame"><div class="evaluation-rail" id="evaluation-rail" role="img" aria-label="Position evaluation is equal"><div id="evaluation-fill"></div><span id="evaluation-marker"></span></div><div id="board" class="board" role="group" aria-label="Interactive chess board" aria-busy="true"></div></div>
+        <div class="board-frame"><div class="evaluation-rail" id="evaluation-rail" role="img" aria-label="Position evaluation is equal"><div id="evaluation-fill"></div><span id="evaluation-marker"></span></div><div id="board-canvas"><div id="board" class="board" role="group" aria-label="Interactive chess board" aria-busy="true"></div></div></div>
         <div class="player-row bottom-player"><div class="player-info"><span class="player-icon light-icon" id="bottom-player-icon" aria-hidden="true">♔</span><div><strong id="bottom-player-name">Your opponent</strong><span id="bottom-player-detail">White · Enter their moves</span></div></div><span id="turn-badge" class="turn-badge">Loading position</span></div>
         <form id="move-form" class="move-form"><label class="sr-only" for="move-input">Enter a move in SAN or UCI notation</label><span class="input-prefix" aria-hidden="true">↗</span><input id="move-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Enter a move, e.g. e4 or e2e4" maxlength="32"><button class="button button-primary" id="submit-move" type="submit">Make move <span aria-hidden="true">→</span></button></form>
         <div class="board-toolbar"><div><button class="text-button" id="undo" title="Take back the last turn"><span aria-hidden="true">↶</span> Undo</button><button class="text-button" id="flip"><span aria-hidden="true">⇅</span> Flip board</button></div><div><button class="text-button" id="import"><span aria-hidden="true">↓</span> Import</button><button class="text-button" id="copy-fen">Copy FEN</button><button class="text-button" id="export-pgn">Export PGN</button></div></div>
         <div class="board-footnote"><span class="small-diamond" aria-hidden="true">◇</span><p>Click a piece, then its destination. Analysis runs on your computer.</p></div>
+        <div id="analysis-arrows-host"></div>
       </section>
 
       <aside class="sidebar" aria-label="Engine analysis and settings">

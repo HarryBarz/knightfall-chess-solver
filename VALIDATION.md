@@ -2,6 +2,49 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Optional analysis arrows (2026-09-29)
+
+Executed with native Stockfish 19 and headless Chrome on macOS:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+node scripts/browser_smoke.mjs http://127.0.0.1:8882
+node scripts/screenshot_smoke.mjs http://127.0.0.1:8882
+node scripts/review_smoke.mjs http://127.0.0.1:8882
+node scripts/arrows_smoke.mjs http://127.0.0.1:8882
+```
+
+The complete Python suite passed **86 tests in 41.642 seconds**. This includes
+23 new arrow tests and two new HTTP integration checks. The tests execute
+absolute pins, both-color forks, coordinated pressure on f7, support and central
+control, opened rook lines including en passant, underpromotion, castling,
+terminal positions, named gambit history, and qualified material offers. Legal
+continuations retain the actual turn and selected engine move; unrelated top
+variations cannot be attached to a lower-strength choice. API checks validate
+settings, preserve history and board state, and cancel arrow searches without
+cancelling the separate playing search. Native searches also exercise both
+strength-limited plans and mate positions.
+
+All three existing browser suites passed, covering play and persistence,
+screenshot recognition/import, and full post-match replay. These checks also
+verify the board wrapper preserves existing click targets and desktop/mobile
+layout. JavaScript syntax and `git diff --check` passed.
+
+The dedicated arrow browser suite passed using real server and Stockfish
+responses. It checks the default-off state, no searches when disabled,
+independent White/Black filters, simultaneous ideas, coordinated bishop/queen
+pressure on f7, normal/flipped/mobile SVG alignment, and real mouse moves through
+the transparent overlay. Every projected step is replayed through the chess API
+to verify its legality and FEN. The suite also covers selected-strength live
+analysis versus full-strength review, replay and variation-preview contexts,
+unchanged live board/storage, saved preferences, offline retry, and delayed
+responses across master-off, undo, import, and new game. Only errors and response
+timing are injected; successful chess results come from Stockfish.
+Desktop, 390px, and 320px board/control captures and expanded review explanations
+were visually inspected (`artifacts/arrows-*.png`). The final rerun also verifies
+the expanded review notes remain reachable by scrolling. The local server was
+restarted on port 8877; its health endpoint and a native 70% arrow request passed.
+
 ## Post-match reviewer (2026-09-29)
 
 The new reviewer was exercised with native Stockfish 19 and headless Chrome on

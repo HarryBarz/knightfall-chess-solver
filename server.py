@@ -33,6 +33,7 @@ except ImportError as exc:
 
 from coach import CoachError, ExplainService
 from match_review import MatchReviewService
+from arrows import ArrowService
 from practice import PracticePlan
 
 
@@ -426,9 +427,11 @@ class StockfishService:
 ENGINE = StockfishService()
 COACH = ExplainService(StockfishService.engine_path)
 REVIEW = MatchReviewService(StockfishService.engine_path)
+ARROWS = ArrowService(StockfishService())
 atexit.register(ENGINE.close)
 atexit.register(COACH.close)
 atexit.register(REVIEW.close)
+atexit.register(ARROWS.close)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -572,6 +575,21 @@ class Handler(BaseHTTPRequestHandler):
                 result = REVIEW.review(board, ident, ply, lookahead, strength, forgiving)
             elif path == "/api/review/stop":
                 result = REVIEW.stop(request_id(data))
+            elif path == "/api/arrows":
+                board = board_from_request(data)
+                ident = request_id(data)
+                lookahead = bounded_number(data, "lookahead", 3, 2, 6, integer=True)
+                if lookahead not in (2, 3, 4, 6):
+                    raise APIError("Choose 2, 3, 4, or 6 turns for the arrow projection.")
+                strength = bounded_number(data, "strength", 70, 10, 100, integer=True)
+                forgiving = data.get("forgiving", False)
+                if not isinstance(forgiving, bool):
+                    raise APIError("forgiving must be true or false.")
+                if strength == 100 and forgiving:
+                    raise APIError("Choose a strength below 100 to enable forgiving practice.")
+                result = ARROWS.analyze(board, ident, strength, forgiving, lookahead)
+            elif path == "/api/arrows/stop":
+                result = ARROWS.stop(request_id(data))
             else:
                 raise APIError("Unknown API endpoint.", 404)
             self._json(200, result)
@@ -616,6 +634,7 @@ def main():
         ENGINE.close()
         COACH.close()
         REVIEW.close()
+        ARROWS.close()
 
 
 if __name__ == "__main__":

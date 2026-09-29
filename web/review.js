@@ -247,7 +247,19 @@
       button.setAttribute("aria-pressed", String(Boolean(preview && button.dataset.reviewLine === preview.kind && Number(button.dataset.step) === preview.index)));
     }
     renderBoard();
+    publishReviewPosition();
     schedulePlayback();
+  }
+
+  function publishReviewPosition() {
+    if (!snapshot || !dialog.open) return;
+    const fen = preview?.step.fen || selectedFen();
+    window.dispatchEvent(new CustomEvent("knightfall:review-position", { detail: {
+      active: true, ready: Boolean(fen), fen, flipped, ...profile(),
+      initialFen: preview ? fen : snapshot.initialFen,
+      moves: preview ? [] : snapshot.moves.slice(0, ply),
+      history: preview ? [] : snapshot.history.slice(0, ply),
+    } }));
   }
 
   function stopTimer() { clearTimeout(playTimer); playTimer = null; }
@@ -449,6 +461,7 @@
     cancelWork();
     historyController?.abort();
     preview = null;
+    window.dispatchEvent(new CustomEvent("knightfall:review-position", { detail: { active: false } }));
     window.dispatchEvent(new CustomEvent("knightfall:review-close"));
     if (opener?.isConnected && !opener.disabled) opener.focus();
   });
@@ -472,7 +485,7 @@
   for (const id of ["review-lookahead", "review-strength"]) $(id).addEventListener("change", () => { pause(); preview = null; requestNote(); });
   $("review-retry").addEventListener("click", () => requestNote(true));
   $("review-return").addEventListener("click", () => { preview = null; render(); });
-  $("review-flip").addEventListener("click", () => { flipped = !flipped; renderBoard(); });
+  $("review-flip").addEventListener("click", () => { flipped = !flipped; renderBoard(); publishReviewPosition(); });
   document.addEventListener("visibilitychange", () => { if (document.hidden) { pause(); render(); } });
   dialog.addEventListener("keydown", (event) => {
     if (event.altKey || event.metaKey || event.ctrlKey || event.target.matches("select, input, textarea")) return;

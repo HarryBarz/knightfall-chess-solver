@@ -1,4 +1,5 @@
 main { max-width: 1720px; margin: 0 auto; padding: 22px 28px 0; }
+#board-canvas { position: relative; flex: 1; min-width: 0; }
 .match-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin: -4px 0 22px; }
 .match-review-actions > span { color: var(--muted); font-size: 11px; }
 .match-finished { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px; border: 1px solid var(--green); border-radius: 8px; margin-bottom: 20px; background: var(--card); }

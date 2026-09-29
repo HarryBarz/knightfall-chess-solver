@@ -211,6 +211,10 @@
     renderAnalysis();
     renderControls();
     renderMatchReview();
+    publishPosition();
+  }
+
+  function publishPosition() {
     if (state) window.dispatchEvent(new CustomEvent("knightfall:position", { detail: {
       initialFen: state.initialFen,
       moves: [...state.moves],
@@ -222,6 +226,7 @@
       flipped: settings.flipped,
       outcome: state.outcome,
       ready: available(),
+      suspended: busy || screenshotImportOpen || matchReviewOpen || $("new-game-dialog").open || $("import-dialog").open,
     } }));
   }
 
@@ -485,6 +490,7 @@
     selected = null;
     $("promotion-dialog").close();
     renderControls();
+    publishPosition();
     try {
       await cancelSearch();
       const next = await fetchPosition();
@@ -767,6 +773,7 @@
     renderBoard();
     renderPlayers();
     renderAnalysis();
+    publishPosition();
   });
 
   for (const color of ["white", "black"]) {
@@ -814,7 +821,9 @@
     $("import-error").hidden = true;
     $("import-dialog").showModal();
     $("import-text").focus();
+    publishPosition();
   });
+  $("import-dialog").addEventListener("close", publishPosition);
   $("open-screenshot")?.addEventListener("click", async () => {
     if (busy || screenshotImportOpen || !window.KnightfallScreenshot) return;
     const wasPaused = autoPaused;
