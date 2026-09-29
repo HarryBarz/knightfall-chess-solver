@@ -1,4 +1,4 @@
-// Ten-minute clocks with real server adjudication and native engine searches.
+// Fifteen-minute clocks with real server adjudication and native engine searches.
 // Run: node scripts/clock_smoke.mjs http://127.0.0.1:8877
 import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -162,7 +162,7 @@ try {
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await call('Page.navigate', { url: base });
   await until(`document.querySelector('#new-game-dialog')?.open && document.querySelectorAll('#board .square').length === 64`);
-  assert.match(await evaluate(`document.querySelector('#game-time-note').textContent`), /10/);
+  assert.match(await evaluate(`document.querySelector('#game-time-note').textContent`), /15/);
   await click('#close-new-game');
   await until(`!document.querySelector('#new-game-dialog').open`);
   assert.equal(await evaluate(`document.querySelector('#submit-move').disabled`), true, 'Cancelling initial setup must not allow an untimed game');
@@ -176,15 +176,15 @@ try {
   await setAuto(false);
   await stopCoach();
   let current = await clock();
-  assert.ok(current.remaining.white <= 600000 && current.remaining.white > 598000);
-  assert.equal(current.remaining.black, 600000);
+  assert.ok(current.remaining.white <= 900000 && current.remaining.white > 898000);
+  assert.equal(current.remaining.black, 900000);
   assert.equal(current.turn, 'white');
   assert.equal(current.running, true);
   await advance(5000);
   current = await clock();
-  assert.ok(current.remaining.white < 595000);
-  assert.equal(current.remaining.black, 600000, 'Only the active side spends time');
-  assert.match(await evaluate(`document.querySelector('#top-player-clock').textContent`), /10:00/);
+  assert.ok(current.remaining.white < 895000);
+  assert.equal(current.remaining.black, 900000, 'Only the active side spends time');
+  assert.match(await evaluate(`document.querySelector('#top-player-clock').textContent`), /15:00/);
   assert.equal(await evaluate(`document.querySelector('#top-player-clock').dataset.color`), 'black');
   assert.equal(await evaluate(`document.querySelector('#bottom-player-clock').dataset.color`), 'white');
 
@@ -196,15 +196,15 @@ try {
   assert.deepEqual(await moves(), []);
   current = await clock();
   assert.ok(current.remaining.white < beforeIllegal - 1900, 'An illegal move must not pause or reset its clock');
-  assert.equal(current.remaining.black, 600000);
+  assert.equal(current.remaining.black, 900000);
   await play('e4', 1);
   const afterWhiteMove = await clock();
   await advance(3000);
   current = await clock();
   assert.equal(current.turn, 'black');
   assert.equal(current.remaining.white, afterWhiteMove.remaining.white);
-  assert.ok(current.remaining.black < 597000, 'A successful move switches the ticking side');
-  progress('Ten-minute default, active-side charging, illegal move, and legal turn switch passed');
+  assert.ok(current.remaining.black < 897000, 'A successful move switches the ticking side');
+  progress('Fifteen-minute default, active-side charging, illegal move, and legal turn switch passed');
 
   await click('#clock-pause');
   await until(`${workspace}.clockPaused === true`);
@@ -244,15 +244,15 @@ try {
 
   await newGame();
   current = await clock();
-  assert.ok(current.remaining.white > 599000);
-  assert.equal(current.remaining.black, 600000);
+  assert.ok(current.remaining.white > 899000);
+  assert.equal(current.remaining.black, 900000);
   await stopCoach();
   await play('e4', 1);
   await until(`window.clockRequests.some(item => item.url === '/api/analyze' && item.body.moves.length === 1)`);
   const normalRequest = await evaluate(`window.clockRequests.find(item => item.url === '/api/analyze' && item.body.moves.length === 1).body`);
   assert.equal(normalRequest.seconds, 3, 'Automatic opponent requests the selected three-second budget');
   await until(`${workspace}.moves.length === 2 && !document.querySelector('#submit-move').disabled`);
-  assert.ok((await clock()).remaining.black < 598000, 'The opponent spends real clock time while its engine thinks');
+  assert.ok((await clock()).remaining.black < 898000, 'The opponent spends real clock time while its engine thinks');
 
   await newGame();
   await evaluate('window.clockHold = true');
@@ -279,8 +279,8 @@ try {
   await setAuto(false);
   await importPgn('1. e4 *');
   current = await clock();
-  assert.equal(current.remaining.white, 600000);
-  assert.ok(current.remaining.black > 599000, 'An imported position receives fresh ten-minute clocks');
+  assert.equal(current.remaining.white, 900000);
+  assert.ok(current.remaining.black > 899000, 'An imported position receives fresh fifteen-minute clocks');
   progress('New/imported games reset clocks, and a real native opponent used three seconds');
 
   await mkdir('artifacts', { recursive: true });
@@ -390,7 +390,7 @@ try {
   const pgn = await evaluate('window.clockExportText');
   assert.match(pgn, /\[Result "0-1"\]/);
   assert.match(pgn, /\[Termination "time forfeit"\]/);
-  assert.match(pgn, /\[TimeControl "600\+0"\]/);
+  assert.match(pgn, /\[TimeControl "900\+0"\]/);
   assert.match(pgn, /1\. e4 e5 0-1\s*$/);
   await reload();
   await until(`!document.querySelector('#match-finished').hidden`);

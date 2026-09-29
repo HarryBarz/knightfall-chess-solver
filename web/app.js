@@ -87,7 +87,7 @@
       opponentStyle: settings.opponentStyle,
       flipped: settings.flipped, outcome: state.outcome ? { ...state.outcome } : null,
       reviewStrength: 100,
-      timeControl: "600+0",
+      timeControl: "900+0",
     };
   }
 
@@ -253,7 +253,7 @@
   }
 
   function timedPgn(pgn) {
-    return /^\[TimeControl /m.test(pgn) ? pgn : pgn.replace(/\n\n/, '\n[TimeControl "600+0"]\n\n');
+    return /^\[TimeControl /m.test(pgn) ? pgn : pgn.replace(/\n\n/, '\n[TimeControl "900+0"]\n\n');
   }
 
   function syncClock() {
@@ -271,7 +271,7 @@
     for (const position of ["top", "bottom"]) {
       const color = position === "top" ? settings.flipped ? "white" : "black" : settings.flipped ? "black" : "white";
       const element = $(`${position}-player-clock`);
-      const remaining = snapshot?.remaining[color] ?? 600000;
+      const remaining = snapshot?.remaining[color] ?? 900000;
       const seconds = Math.ceil(remaining / 1000);
       element.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
       element.dataset.color = color;
@@ -280,8 +280,8 @@
       element.classList.toggle("low-time", remaining < 60000);
       element.setAttribute("aria-label", `${capitalize(color)}: ${element.textContent} remaining`);
     }
-    $("clock-status").textContent = snapshot?.flagged ? "Time expired" : state?.outcome ? "10 + 0 · Game finished"
-      : clockUserPaused ? "10 + 0 · Paused" : snapshot?.running ? "10 + 0 · Clock running" : "10 + 0 · Paused for setup or review";
+    $("clock-status").textContent = snapshot?.flagged ? "Time expired" : state?.outcome ? "15 + 0 · Game finished"
+      : clockUserPaused ? "15 + 0 · Paused" : snapshot?.running ? "15 + 0 · Clock running" : "15 + 0 · Paused for setup or review";
     $("clock-pause").textContent = clockUserPaused ? "Resume game" : "Pause game";
     $("clock-pause").disabled = !gameConfigured || busy || Boolean(state?.outcome || snapshot?.flagged) || clockDialogOpen();
     $("clock-pause").setAttribute("aria-pressed", String(clockUserPaused));
@@ -867,7 +867,7 @@
     $("game-forgiving-note").textContent = targetMode ? "Further lowers the strength of your suggestions." : "Further lowers strength for both sides.";
     $("game-inaccuracies").disabled = newGameSubmitting || targetMode;
     $("game-inaccuracies-note").hidden = !targetMode;
-    $("game-time-note").textContent = `10 minutes per side · No increment · Up to ${settings.seconds} seconds of engine thinking per move.`;
+    $("game-time-note").textContent = `15 minutes per side · No increment · Up to ${settings.seconds} seconds of engine thinking per move.`;
   }
 
   async function openNewGame() {

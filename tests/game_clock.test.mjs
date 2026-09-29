@@ -18,21 +18,21 @@ function fixture(fen = FEN, moves = []) {
   };
 }
 
-test("new game has two paused ten-minute clocks and charges only the active color", () => {
+test("new game has two paused fifteen-minute clocks and charges only the active color", () => {
   const { clock, advance } = fixture();
-  assert.equal(INITIAL_MS, 600000);
+  assert.equal(INITIAL_MS, 900000);
   assert.equal(clock.running, false);
   advance(15000);
-  assert.deepEqual(clock.snapshot().remaining, { white: 600000, black: 600000 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 900000, black: 900000 });
   clock.start();
   advance(3250);
   assert.equal(clock.commit(E4), true);
   assert.equal(clock.turn, "black");
   advance(2000);
-  assert.deepEqual(clock.snapshot().remaining, { white: 596750, black: 598000 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 896750, black: 898000 });
   assert.equal(clock.commit(E4E5), true);
   assert.equal(clock.turn, "white");
-  assert.equal(clock.remaining("b"), 598000);
+  assert.equal(clock.remaining("b"), 898000);
 });
 
 test("imported endpoints get fresh clocks and derive turn from initial FEN and ply", () => {
@@ -41,10 +41,10 @@ test("imported endpoints get fresh clocks and derive turn from initial FEN and p
   assert.equal(clock.snapshot().basePly, 1);
   clock.resume();
   advance(3000);
-  assert.equal(clock.remaining("white"), 597000);
-  assert.equal(clock.remaining("black"), 600000);
+  assert.equal(clock.remaining("white"), 897000);
+  assert.equal(clock.remaining("black"), 900000);
   const fresh = new GameClock(FEN, E4E5);
-  assert.deepEqual(fresh.snapshot().remaining, { white: 600000, black: 600000 });
+  assert.deepEqual(fresh.snapshot().remaining, { white: 900000, black: 900000 });
   assert.equal(fresh.snapshot().history.length, 1);
 });
 
@@ -60,11 +60,11 @@ test("sparse ticks and page reload charge elapsed wall time without interval dri
   advance(62000);
   const restored = GameClock.restore(saved, FEN, [], { now });
   assert.ok(restored);
-  assert.equal(restored.remaining("white"), 537700);
+  assert.equal(restored.remaining("white"), 837700);
   assert.equal(restored.running, true);
   advance(2000);
   assert.equal(restored.commit(E4), true);
-  assert.equal(restored.remaining("white"), 535700);
+  assert.equal(restored.remaining("white"), 835700);
 });
 
 test("paused review time and paused reload do not charge either clock", () => {
@@ -76,33 +76,33 @@ test("paused review time and paused reload do not charge either clock", () => {
   advance(120000);
   const restored = GameClock.restore(saved, FEN, [], { now });
   assert.equal(restored.running, false);
-  assert.equal(restored.remaining("white"), 597000);
+  assert.equal(restored.remaining("white"), 897000);
   restored.resume();
   advance(1000);
-  assert.equal(restored.remaining("white"), 596000);
+  assert.equal(restored.remaining("white"), 896000);
 });
 
 test("expiration flags only the active side once and rejects moves arriving too late", () => {
   const { clock, advance } = fixture(BLACK_FEN);
   clock.start();
-  advance(600001);
+  advance(900001);
   assert.equal(clock.commit(["e7e5"]), false);
   assert.equal(clock.flagged, "black");
   assert.equal(clock.ply, 0);
   assert.equal(clock.running, false);
-  assert.deepEqual(clock.snapshot().remaining, { white: 600000, black: 0 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 900000, black: 0 });
   advance(1000000);
   clock.resume();
   assert.equal(clock.running, false);
   assert.equal(clock.flagged, "black");
-  assert.equal(clock.remaining("white"), 600000);
+  assert.equal(clock.remaining("white"), 900000);
 });
 
 test("restoring an elapsed running clock or a saved flag preserves timeout", () => {
   const { clock, advance, now } = fixture();
   clock.start();
   const saved = clock.serialize();
-  advance(700000);
+  advance(1000000);
   const expired = GameClock.restore(saved, FEN, [], { now });
   assert.equal(expired.flagged, "white");
   const roundTrip = GameClock.restore(expired.serialize(), FEN, [], { now });
@@ -120,7 +120,7 @@ test("failed moves keep charging and cannot change the side to move or its histo
   assert.equal(clock.turn, "white");
   assert.equal(clock.running, true);
   assert.equal(clock.ply, 0);
-  assert.equal(clock.remaining("white"), 597000);
+  assert.equal(clock.remaining("white"), 897000);
   assert.equal(clock.commit(E4), true);
   assert.equal(clock.commit(["d2d4", "e7e5"]), false);
 });
@@ -135,12 +135,12 @@ test("undo restores the earlier turn without refunding time and discards abandon
   advance(5000);
   assert.equal(clock.undo(E4), true);
   assert.equal(clock.turn, "black");
-  assert.deepEqual(clock.snapshot().remaining, { white: 592000, black: 596000 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 892000, black: 896000 });
   advance(1000);
   assert.equal(clock.commit([...E4, "c7c5"]), true);
   assert.equal(clock.undo(E4E5), false);
   assert.equal(clock.undo(E4), true);
-  assert.equal(clock.remaining("black"), 595000);
+  assert.equal(clock.remaining("black"), 895000);
   assert.equal(clock.snapshot().history.length, 2);
   assert.ok(GameClock.restore(clock.serialize(), FEN, E4, { now }));
 });
@@ -152,10 +152,10 @@ test("undo past an import baseline keeps spent time and rebases unknown clock hi
   assert.equal(clock.undo(E4), true);
   assert.equal(clock.turn, "black");
   assert.equal(clock.snapshot().basePly, 1);
-  assert.deepEqual(clock.snapshot().remaining, { white: 595000, black: 600000 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 895000, black: 900000 });
   advance(2000);
   assert.equal(clock.undo([]), true);
-  assert.deepEqual(clock.snapshot().remaining, { white: 595000, black: 598000 });
+  assert.deepEqual(clock.snapshot().remaining, { white: 895000, black: 898000 });
   assert.equal(clock.snapshot().basePly, 0);
   assert.ok(GameClock.restore(clock.serialize(), FEN, [], { now }));
 });
@@ -163,12 +163,12 @@ test("undo past an import baseline keeps spent time and rebases unknown clock hi
 test("backwards time neither refunds nor double-counts elapsed time", () => {
   const { clock } = fixture();
   clock.start(1000);
-  assert.equal(clock.remaining("white", 5000), 596000);
-  assert.equal(clock.remaining("white", 3000), 596000);
-  assert.equal(clock.remaining("white", 6000), 595000);
+  assert.equal(clock.remaining("white", 5000), 896000);
+  assert.equal(clock.remaining("white", 3000), 896000);
+  assert.equal(clock.remaining("white", 6000), 895000);
   clock.pause(4000);
   clock.resume(5000);
-  assert.equal(clock.remaining("white", 7000), 594000);
+  assert.equal(clock.remaining("white", 7000), 894000);
 });
 
 test("saved state must match the exact game, valid history, balances, and clock anchor", () => {
@@ -183,7 +183,7 @@ test("saved state must match the exact game, valid history, balances, and clock 
   assert.equal(GameClock.restore(saved, FEN, ["d2d4"], { now }), null);
   const corruptions = [
     (s) => { s.version = VERSION + 1; },
-    (s) => { s.remaining.white = 600001; },
+    (s) => { s.remaining.white = 900001; },
     (s) => { s.remaining.black = -1; },
     (s) => { s.remaining.white = Infinity; },
     (s) => { s.anchor = now() + 1; },
@@ -197,8 +197,8 @@ test("saved state must match the exact game, valid history, balances, and clock 
     (s) => { s.ply = 2; },
     (s) => { s.history.pop(); },
     (s) => { s.history[1].ply = 0; },
-    (s) => { s.history[1].remaining.white = 594000; },
-    (s) => { s.history[0].remaining.white = 595000; },
+    (s) => { s.history[1].remaining.white = 894000; },
+    (s) => { s.history[0].remaining.white = 895000; },
   ];
   for (const corrupt of corruptions) {
     const broken = clone(saved);
@@ -217,8 +217,8 @@ test("snapshots and caller move arrays cannot mutate the clock", () => {
   saved.remaining.white = 0;
   saved.history[0].remaining.white = 0;
   assert.deepEqual(clock.snapshot().moves, E4);
-  assert.equal(clock.remaining("white"), 600000);
-  assert.equal(clock.snapshot().history[0].remaining.white, 600000);
+  assert.equal(clock.remaining("white"), 900000);
+  assert.equal(clock.snapshot().history[0].remaining.white, 900000);
 });
 
 test("constructor can restore supplied state and rejects invalid setup", () => {
@@ -228,10 +228,55 @@ test("constructor can restore supplied state and rejects invalid setup", () => {
   const saved = clock.serialize();
   advance(1000);
   const restored = new GameClock(FEN, [], { now, saved });
-  assert.equal(restored.remaining("white"), 598000);
+  assert.equal(restored.remaining("white"), 898000);
   assert.equal(restored.running, true);
   assert.throws(() => new GameClock("not a FEN"), TypeError);
   assert.throws(() => new GameClock(FEN, ["e2e2"]), TypeError);
   assert.throws(() => clock.settle(NaN), TypeError);
   assert.throws(() => clock.remaining("purple"), TypeError);
+});
+
+function legacyClock(running = true) {
+  return {
+    version: 1, initialFen: FEN, moves: E4.slice(), basePly: 0, ply: 1,
+    remaining: { white: 597000, black: 598000 }, turn: "black", running,
+    flagged: null, anchor: 10000,
+    history: [
+      { ply: 0, remaining: { white: 600000, black: 600000 } },
+      { ply: 1, remaining: { white: 597000, black: 600000 } },
+    ],
+  };
+}
+
+test("saved ten-minute games gain five minutes once while preserving elapsed time and pauses", () => {
+  for (const running of [true, false]) {
+    const saved = legacyClock(running);
+    const original = clone(saved);
+    const restored = GameClock.restore(saved, FEN, E4, { now: () => 11000 });
+    assert.ok(restored);
+    assert.equal(restored.running, running);
+    assert.deepEqual(restored.snapshot().remaining, { white: 897000, black: running ? 897000 : 898000 });
+    assert.equal(restored.snapshot().version, 2);
+    assert.deepEqual(restored.snapshot().history[0].remaining, { white: 900000, black: 900000 });
+    assert.deepEqual(saved, original, "Migration must not mutate stored input");
+    const reloaded = GameClock.restore(restored.serialize(), FEN, E4, { now: () => 12000 });
+    assert.deepEqual(reloaded.snapshot().remaining, { white: 897000, black: running ? 896000 : 898000 });
+    assert.equal(reloaded.undo([]), true);
+    assert.deepEqual(reloaded.snapshot().remaining, { white: 897000, black: running ? 896000 : 898000 });
+  }
+});
+
+test("legacy time forfeits remain finished and invalid legacy balances are rejected", () => {
+  const saved = legacyClock(false);
+  saved.flagged = "black";
+  saved.remaining.black = 0;
+  const restored = GameClock.restore(saved, FEN, E4, { now: () => 12000 });
+  assert.ok(restored);
+  assert.equal(restored.flagged, "black");
+  assert.equal(restored.resume().running, false);
+  assert.equal(restored.commit(E4E5), false);
+  assert.equal(GameClock.restore(restored.serialize(), FEN, E4, { now: () => 13000 }).flagged, "black");
+  const invalid = legacyClock();
+  invalid.history[0].remaining.white = 600001;
+  assert.equal(GameClock.restore(invalid, FEN, E4, { now: () => 11000 }), null);
 });

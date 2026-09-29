@@ -3,16 +3,16 @@
 // A wall-clock anchor keeps background tabs and page reloads from stopping time.
 // This module knows move history, but leaves chess legality to the game server.
 (() => {
-  const VERSION = 1;
-  const INITIAL_MS = 10 * 60 * 1000;
+  const VERSION = 2;
+  const INITIAL_MS = 15 * 60 * 1000;
   const MAX_PLIES = 4096;
   const MOVE = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
   const COLORS = ["white", "black"];
   const other = (color) => color === "white" ? "black" : "white";
   const copyBalances = (balances) => ({ white: balances.white, black: balances.black });
   const timestamp = (value) => Number.isFinite(value) && value >= 0;
-  const balancesValid = (value) => value && COLORS.every((color) =>
-    Number.isFinite(value[color]) && value[color] >= 0 && value[color] <= INITIAL_MS);
+  const balancesValid = (value, initialMs = INITIAL_MS) => value && COLORS.every((color) =>
+    Number.isFinite(value[color]) && value[color] >= 0 && value[color] <= initialMs);
   const movesValid = (moves) => Array.isArray(moves) && moves.length <= MAX_PLIES
     && moves.every((move) => typeof move === "string" && MOVE.test(move) && move.slice(0, 2) !== move.slice(2, 4));
   const sameMoves = (first, second) => first.length === second.length && first.every((move, index) => move === second[index]);
@@ -140,20 +140,21 @@
     }
 
     _validSaved(saved, now) {
-      if (!saved || saved.version !== VERSION || saved.initialFen !== this.initialFen
+      const initialMs = saved?.version === 1 ? 600000 : INITIAL_MS;
+      if (!saved || ![1, VERSION].includes(saved.version) || saved.initialFen !== this.initialFen
         || !movesValid(saved.moves) || !sameMoves(saved.moves, this.moves)
         || !Number.isInteger(saved.basePly) || saved.basePly < 0 || saved.basePly > this.ply
         || saved.ply !== this.ply || saved.turn !== this._turn || typeof saved.running !== "boolean"
-        || !timestamp(saved.anchor) || saved.anchor > now || !balancesValid(saved.remaining)
+        || !timestamp(saved.anchor) || saved.anchor > now || !balancesValid(saved.remaining, initialMs)
         || !Array.isArray(saved.history) || saved.history.length !== this.ply - saved.basePly + 1) return false;
       if (saved.flagged !== null) {
         if (saved.flagged !== saved.turn || saved.running || saved.remaining[saved.turn] !== 0
           || saved.remaining[other(saved.turn)] <= 0) return false;
       } else if (COLORS.some((color) => saved.remaining[color] <= 0)) return false;
-      let previous = { white: INITIAL_MS, black: INITIAL_MS };
+      let previous = { white: initialMs, black: initialMs };
       for (let index = 0; index < saved.history.length; index++) {
         const entry = saved.history[index];
-        if (!entry || entry.ply !== saved.basePly + index || !balancesValid(entry.remaining)
+        if (!entry || entry.ply !== saved.basePly + index || !balancesValid(entry.remaining, initialMs)
           || COLORS.some((color) => entry.remaining[color] <= 0 || entry.remaining[color] > previous[color])) return false;
         previous = entry.remaining;
       }
@@ -161,12 +162,16 @@
     }
 
     _load(saved, now) {
+      // Extend existing ten-minute games once, retaining spent time and pauses.
+      // A recorded time forfeit must stay finished after this upgrade.
+      const extra = saved.version === 1 && !saved.flagged ? INITIAL_MS - 600000 : 0;
+      const extend = (remaining) => ({ white: remaining.white + extra, black: remaining.black + extra });
       this.basePly = saved.basePly;
-      this._remaining = copyBalances(saved.remaining);
+      this._remaining = extend(saved.remaining);
       this._running = saved.running;
       this._flagged = saved.flagged;
       this._anchor = saved.anchor;
-      this._history = saved.history.map((entry) => ({ ply: entry.ply, remaining: copyBalances(entry.remaining) }));
+      this._history = saved.history.map((entry) => ({ ply: entry.ply, remaining: extend(entry.remaining) }));
       this._advance(now);
     }
 

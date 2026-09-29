@@ -176,7 +176,7 @@ def timeout_payload(data: dict) -> dict:
     # A delivered checkmate or automatic draw finishes the game before a clock
     # notification arriving for that same position can change its result.
     if board.is_game_over(claim_draw=False):
-        return position_payload(board, time_control="600+0")
+        return position_payload(board, time_control="900+0")
     if flagged != ("white" if board.turn else "black"):
         raise APIError("Only the side whose turn it is can lose on time.")
     opponent = not board.turn
@@ -187,7 +187,7 @@ def timeout_payload(data: dict) -> dict:
         "winner": winner,
         "reason": "time forfeit — insufficient mating material" if cannot_mate else "time forfeit",
     }
-    return position_payload(board, outcome_override=outcome, time_control="600+0")
+    return position_payload(board, outcome_override=outcome, time_control="900+0")
 
 
 def import_position(data: dict) -> chess.Board:

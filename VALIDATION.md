@@ -2,6 +2,28 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Fifteen-minute time control (2026-09-29)
+
+The default is now 15 minutes per side with zero increment (`900+0`). The
+three-second engine default is unchanged. Saved clock version 1 upgrades once
+by adding five minutes to both sides and their undo history, retaining elapsed
+wall time and pause state. Recorded time forfeits stay finished.
+
+Executed:
+
+```sh
+node --test tests/game_clock.test.mjs
+env PYTHONPYCACHEPREFIX=/private/tmp/knightfall-pycache .venv/bin/python -m unittest discover -s tests -p test_clock_api.py -v
+node scripts/clock_smoke.mjs http://127.0.0.1:8879
+```
+
+**15 clock tests and 11 clock API tests passed**, including running/paused legacy
+migration, no repeated time addition on reload, undo after migration, rejection
+of invalid legacy balances, and preservation of existing flags. Chrome smoke
+passed with native three-second replies, 15:00 displays, updated PGN time control,
+pauses/reloads, delayed responses across timeouts, archived results, and desktop
+and mobile layout. JavaScript syntax and `git diff --check` passed.
+
 ## Ten-minute games and three-second replies (2026-09-29)
 
 Executed on the same macOS/Stockfish environment:

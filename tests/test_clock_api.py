@@ -1,4 +1,4 @@
-"""Clock adjudication and short engine searches for ten-minute games."""
+"""Clock adjudication and short engine searches for fifteen-minute games."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ class ClockPayloadTest(unittest.TestCase):
         exported = chess.pgn.read_game(io.StringIO(result["pgn"]))
         self.assertEqual(exported.headers["Result"], "0-1")
         self.assertEqual(exported.headers["Termination"], "time forfeit")
-        self.assertEqual(exported.headers["TimeControl"], "600+0")
+        self.assertEqual(exported.headers["TimeControl"], "900+0")
         self.assertEqual([move.uci() for move in exported.mainline_moves()], moves)
         self.assertTrue(result["pgn"].endswith("0-1"))
 
