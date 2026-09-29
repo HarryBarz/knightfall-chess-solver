@@ -1,4 +1,10 @@
 main { max-width: 1720px; margin: 0 auto; padding: 22px 28px 0; }
+.match-review-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; margin: -4px 0 22px; }
+.match-review-actions > span { color: var(--muted); font-size: 11px; }
+.match-finished { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 22px; border: 1px solid var(--green); border-radius: 8px; margin-bottom: 20px; background: var(--card); }
+.match-finished h2 { font: 24px Georgia, serif; }
+.match-finished p:not(.eyebrow) { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 7px 0 0; }
+@media (max-width: 600px) { .match-finished { align-items: stretch; flex-direction: column; padding: 18px; } .match-review-actions > span { flex-basis: 100%; } }
 .site-header { max-width: 1780px; padding: 18px 28px; }
 .page-heading { margin-bottom: 20px; }
 .eyebrow { margin-bottom: 8px; letter-spacing: 0; }

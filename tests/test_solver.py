@@ -618,6 +618,56 @@ class SolverAPITest(unittest.TestCase):
         self.assertFalse(result["cancelled"], result)
         self.assertEqual(result["move"]["uci"], "e2e4")
 
+    def test_match_review_replays_history_and_validates_selection(self):
+        moves = ["f2f3", "e7e5", "g2g4", "d8h4"]
+        position = self.position(moves)
+        replay = chess.Board()
+        for item in position["history"]:
+            self.assertEqual(item["beforeFen"], replay.fen())
+            replay.push_uci(item["uci"])
+            self.assertEqual(item["afterFen"], replay.fen())
+        payload = {"moves": moves, "requestId": str(uuid.uuid4()), "ply": 3,
+                   "lookahead": 4, "strength": 100, "forgiving": False}
+        review = self.post("/api/review", payload)
+        self.assertEqual(review["moves"], moves)
+        self.assertEqual(review["ply"], 3)
+        self.assertEqual(review["afterFen"], position["history"][2]["afterFen"])
+        self.assertEqual(review["move"]["uci"], "g2g4")
+        self.assertEqual(review["strength"], 100)
+        self.assertFalse(review["forgiving"])
+        self.assertTrue(review["plan"])
+        self.assertEqual(review["actualContinuation"][0]["move"], "d8h4")
+        self.assertEqual(review["actualContinuation"][0]["fen"], position["fen"])
+        for changes in ({"moves": []}, {"ply": 0}, {"ply": 5}, {"ply": True},
+                        {"lookahead": 5}, {"lookahead": 9}, {"lookahead": False},
+                        {"strength": 101}, {"forgiving": True}, {"forgiving": "false"}):
+            with self.subTest(changes=changes):
+                status, body = self.request("/api/review", {**payload, **changes})
+                self.assertEqual(status, 400, body)
+        cancelled_id = str(uuid.uuid4())
+        self.post("/api/review/stop", {"requestId": cancelled_id})
+        stopped = self.post("/api/review", {**payload, "requestId": cancelled_id})
+        self.assertTrue(stopped["cancelled"])
+        self.assertEqual(stopped["requestId"], cancelled_id)
+
+    def test_match_review_is_independent_of_playing_and_live_notes(self):
+        ident = str(uuid.uuid4())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            playing = executor.submit(self.analyze, seconds=30, requestId=ident)
+            try:
+                time.sleep(0.2)
+                notes = executor.submit(self.explain, ["e2e4"], requestId=ident)
+                review = self.post("/api/review", {"moves": ["e2e4", "e7e5"],
+                    "ply": 1, "lookahead": 3, "strength": 100, "requestId": ident})
+                self.assertFalse(review["cancelled"])
+                self.assertFalse(notes.result(timeout=10)["cancelled"])
+                self.assertFalse(playing.done(), "Post-match review must not replace playing analysis")
+                self.post("/api/review/stop", {"requestId": ident})
+                self.assertFalse(playing.done(), "Post-match cancellation must not stop playing analysis")
+            finally:
+                self.post("/api/stop", {"requestId": ident})
+                self.assertTrue(playing.result(timeout=10)["cancelled"])
+
     def test_explanation_and_main_analysis_do_not_cross_cancel(self):
         request_id = str(uuid.uuid4())
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:

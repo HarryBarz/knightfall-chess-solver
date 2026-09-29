@@ -50,6 +50,39 @@ Notes review completed moves: checks, captures, development, central squares, op
 
 Review uses a separate Stockfish process with one thread, 32 MB hash, and a short search budget, leaving the playing engine's search lock and settings untouched. It uses the selected practice strength and forgiving setting, but a brief review may rank moves differently from a longer playing search. It does not reproduce the engine's randomized lower-strength decision. The percentage remains a difficulty setting, not measured accuracy.
 
+## After-match lessons
+
+Every finished game shows **Review this match**. **Review match** also opens the
+recorded moves of a game in progress. Starting a new game or importing a position
+retains the previous game under **Review last match**; only the latest match is
+kept, in this browser. Export PGN if you want a permanent collection.
+
+The review opens its own replay board at the starting position. Move forward or
+back one turn, jump to the start or finish, select a move from the game, or use
+play/pause and a playback speed. Playback waits for the explanation before moving
+on. Reviewing and exploring variations never plays moves on your game board.
+
+For each move, the lesson identifies **You** or **Solver**, describes its visible
+effects and likely purpose, evaluates it, and explains a stronger alternative
+when the search finds one. Both players' moves receive the same scrutiny; the
+practice engine can make mistakes too. Lessons default to **full-strength
+Stockfish**, independently of your in-game difficulty and forgiving settings.
+
+Choose **2, 3, 4, 6, or 8 turns ahead** to explore the continuation. One turn is
+one player's move, so four turns means two moves by each side. These are the
+future moves shown after the selected move, not a claim that a player intended
+exactly that many steps or that Stockfish searched only that far. Select a line
+step to preview its position, then return to the played board. The projected
+continuation, suggested correction, and moves actually played are presented
+separately. A short line may end early at a terminal position or when the bounded
+search supplies fewer moves; the review explicitly identifies a shorter preview.
+
+Explanations use chess rules and engine variations rather than a remote language
+model. They describe plausible plans, not access to either player's thoughts.
+Evaluations are bounded-search estimates from White's perspective, and the
+assessment accounts for which side moved. A screenshot/FEN import can only be
+reviewed from the imported position onward; earlier moves cannot be reconstructed.
+
 ## Engine strength and evaluation
 
 The percentage controls **difficulty**, not measured move accuracy, an Elo rating, win probability, or a promised result. A 70% opponent can win and a 90% opponent can lose. Even 100% means unrestricted search at the chosen thinking time, not perfect play. These settings are for local practice and do not make engine assistance permissible in online games or prevent fair-play enforcement.
@@ -74,6 +107,7 @@ This is an interface to Stockfish, not a new engine trained from scratch. Stockf
 .venv/bin/python -m unittest discover -s tests -v
 node scripts/browser_smoke.mjs
 node scripts/screenshot_smoke.mjs
+node scripts/review_smoke.mjs
 ```
 
 The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, practice strength, forgiving mode, cancellation, recovery, and independent move reviews. Extra-inaccuracy checks cover candidate bounds, mate protection, budget/history validation and real-engine selection for both colors. Browser checks cover playing, written reviews, stale responses, extra-inaccuracy counter persistence and responsive layout. They require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
@@ -95,6 +129,8 @@ Package versions are pinned in `package-lock.json`. The build preserves the acco
 
 - `server.py`: HTTP API, chess rules, game history, and persistent UCI engine.
 - `coach.py`: independent, bounded Stockfish reviews and board-grounded move notes.
+- `match_review.py`: independent post-match lessons, legal continuation steps, and corrections.
+- `web/review.js`, `web/review.css`: replay board, lesson navigation, and variation previews.
 - `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.
 - `web/`: responsive browser interface, using plain HTML, CSS, and JavaScript.
 - `web/vendor/screenshot/`: self-hosted recognition model, WebAssembly runtime, and licenses, loaded only for screenshot import.

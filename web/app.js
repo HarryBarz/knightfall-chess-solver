@@ -3,6 +3,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const STORAGE_KEY = "knightfall.workspace.v1";
+  const LAST_MATCH_KEY = "knightfall.last-match.v1";
   const files = "abcdefgh";
   const symbols = { wK: "♔", wQ: "♕", wR: "♖", wB: "♗", wN: "♘", wP: "♙", bK: "♚", bQ: "♛", bR: "♜", bB: "♝", bN: "♞", bP: "♟" };
   const names = { K: "king", Q: "queen", R: "rook", B: "bishop", N: "knight", P: "pawn" };
@@ -23,6 +24,9 @@
   let newGameSubmitting = false;
   let previousAutoPaused = false;
   let screenshotImportOpen = false;
+  let matchReviewOpen = false;
+  let beforeReviewPaused = false;
+  let lastMatch = readLastMatch();
   let state = null;
   let practiceLedger = null;
   let health = null;
@@ -53,6 +57,71 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ initialFen: state.initialFen, moves: state.moves, settings, gameConfigured, practice: practiceLedger }));
     } catch { /* Private browsing and full storage must not interrupt a game. */ }
   }
+
+  function readLastMatch() {
+    try {
+      const match = JSON.parse(localStorage.getItem(LAST_MATCH_KEY) || "null");
+      return match && typeof match.initialFen === "string" && typeof match.fen === "string" &&
+        Array.isArray(match.moves) && match.moves.length <= 4096 && match.moves.every((move) => typeof move === "string") &&
+        Array.isArray(match.history) && match.history.length === match.moves.length &&
+        match.history.every((move) => move && typeof move.san === "string") &&
+        ["white", "black"].includes(match.solver) && Number.isInteger(match.strength) && match.strength >= 10 && match.strength <= 100
+        ? match : null;
+    } catch { return null; }
+  }
+
+  function matchSnapshot() {
+    if (!state) return null;
+    return {
+      ...context(), history: state.history.map((move) => ({ ...move })), fen: state.fen,
+      strength: settings.strength, forgiving: settings.forgiving, solver: settings.solver,
+      flipped: settings.flipped, outcome: state.outcome ? { ...state.outcome } : null,
+      reviewStrength: 100,
+    };
+  }
+
+  function matchKey(match) { return match ? JSON.stringify([match.initialFen, match.moves, match.solver, match.strength, match.forgiving]) : ""; }
+
+  function rememberMatch() {
+    if (!state || (!state.moves.length && !state.outcome)) return;
+    const match = matchSnapshot();
+    if (matchKey(lastMatch) === matchKey(match)) return;
+    lastMatch = match;
+    try { localStorage.setItem(LAST_MATCH_KEY, JSON.stringify(match)); }
+    catch { /* The last match remains available for this session if storage is full. */ }
+  }
+
+  function renderMatchReview() {
+    if (state?.outcome) rememberMatch();
+    const unavailable = busy || screenshotImportOpen || matchReviewOpen;
+    $("review-match").disabled = unavailable || !state || (!state.moves.length && !state.outcome);
+    $("review-last-match").hidden = !lastMatch || matchKey(lastMatch) === matchKey(matchSnapshot());
+    $("review-last-match").disabled = unavailable;
+    $("match-finished").hidden = !state?.outcome;
+    $("match-finished-review").disabled = unavailable;
+    $("match-finished-result").textContent = state?.outcome ? `${state.outcome.result} · ${humanize(state.outcome.reason)}` : "";
+  }
+
+  async function openMatchReview(match) {
+    if (!match || busy || screenshotImportOpen || matchReviewOpen || $("new-game-dialog").open) return;
+    beforeReviewPaused = autoPaused;
+    autoPaused = true;
+    matchReviewOpen = true;
+    $("promotion-dialog").close();
+    render();
+    await cancelSearch();
+    window.dispatchEvent(new CustomEvent("knightfall:review-open", { detail: structuredClone(match) }));
+  }
+
+  $("review-match").addEventListener("click", () => { void openMatchReview(matchSnapshot()); });
+  $("match-finished-review").addEventListener("click", () => { void openMatchReview(matchSnapshot()); });
+  $("review-last-match").addEventListener("click", () => { void openMatchReview(lastMatch); });
+  window.addEventListener("knightfall:review-close", () => {
+    matchReviewOpen = false;
+    autoPaused = beforeReviewPaused;
+    render();
+    maybeAutomaticallyReply();
+  });
 
   function validInteger(value, min, max, fallback) {
     return Number.isInteger(Number(value)) && value !== null && value !== "" && Number(value) >= min && Number(value) <= max ? Number(value) : fallback;
@@ -132,7 +201,7 @@
   }
 
   function available() { return health?.engineAvailable === true; }
-  function interactive() { return Boolean(state && !busy && !activeSearch && !stoppingSearch && !state.outcome && !screenshotImportOpen && !$("new-game-dialog").open); }
+  function interactive() { return Boolean(state && !busy && !activeSearch && !stoppingSearch && !state.outcome && !screenshotImportOpen && !matchReviewOpen && !$("new-game-dialog").open); }
   function resultApplicable() { return Boolean(analysis?.bestMove && !analysis.applied && state && analysis.positionFen === state.fen && samePosition(analysis.positionContext, state)); }
 
   function render() {
@@ -141,6 +210,7 @@
     renderHistory();
     renderAnalysis();
     renderControls();
+    renderMatchReview();
     if (state) window.dispatchEvent(new CustomEvent("knightfall:position", { detail: {
       initialFen: state.initialFen,
       moves: [...state.moves],
@@ -150,6 +220,7 @@
       forgiving: settings.forgiving,
       solver: settings.solver,
       flipped: settings.flipped,
+      outcome: state.outcome,
       ready: available(),
     } }));
   }
@@ -328,13 +399,13 @@
     const running = Boolean(activeSearch);
     $("move-input").disabled = !interactive();
     $("submit-move").disabled = !interactive();
-    $("undo").disabled = busy || screenshotImportOpen || !state?.moves?.length;
-    $("new-game").disabled = busy || screenshotImportOpen;
-    $("import").disabled = busy || screenshotImportOpen;
+    $("undo").disabled = busy || screenshotImportOpen || matchReviewOpen || !state?.moves?.length;
+    $("new-game").disabled = busy || screenshotImportOpen || matchReviewOpen;
+    $("import").disabled = busy || screenshotImportOpen || matchReviewOpen;
     $("copy-fen").disabled = !state;
     $("export-pgn").disabled = !state;
     $("analyze").hidden = running;
-    $("analyze").disabled = busy || screenshotImportOpen || Boolean(stoppingSearch) || !state || Boolean(state.outcome) || !available();
+    $("analyze").disabled = busy || screenshotImportOpen || matchReviewOpen || Boolean(stoppingSearch) || !state || Boolean(state.outcome) || !available();
     $("stop").hidden = !running && !stoppingSearch;
     $("stop").disabled = Boolean(stoppingSearch);
     $("stop").textContent = stoppingSearch ? "Stopping…" : "Stop analysis";
@@ -345,11 +416,11 @@
     $("practice-inaccuracies-status").textContent = `Extra inaccuracies: ${practiceLedger?.events.length || 0}/${settings.extraInaccuracies} target`;
     $("practice-inaccuracies-status").hidden = settings.extraInaccuracies === 0;
     $("auto-reply").checked = settings.auto;
-    $("auto-reply").disabled = busy || screenshotImportOpen;
+    $("auto-reply").disabled = busy || screenshotImportOpen || matchReviewOpen;
     for (const color of ["white", "black"]) {
       $(`solver-${color}`).classList.toggle("active", settings.solver === color);
       $(`solver-${color}`).setAttribute("aria-pressed", String(settings.solver === color));
-      $(`solver-${color}`).disabled = busy || screenshotImportOpen;
+      $(`solver-${color}`).disabled = busy || screenshotImportOpen || matchReviewOpen;
     }
     for (const button of document.querySelectorAll("[data-seconds]")) {
       const active = Number(button.dataset.seconds) === settings.seconds;
@@ -407,7 +478,7 @@
     await promise;
   }
 
-  async function transition(fetchPosition, { auto = true, preserveAnalysis = false, onCommit = null } = {}) {
+  async function transition(fetchPosition, { auto = true, preserveAnalysis = false, onCommit = null, archiveCurrent = false } = {}) {
     if (busy) return false;
     busy = true;
     const ticket = ++operation;
@@ -418,6 +489,7 @@
       await cancelSearch();
       const next = await fetchPosition();
       if (ticket !== operation) return false;
+      if (archiveCurrent) rememberMatch();
       state = next;
       reconcilePractice();
       onCommit?.();
@@ -455,13 +527,13 @@
   }
 
   function maybeAutomaticallyReply() {
-    if (state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && !screenshotImportOpen && !$("new-game-dialog").open && settings.auto && state.turn === settings.solver && !state.outcome) {
+    if (state && available() && !busy && !activeSearch && !stoppingSearch && !autoPaused && !screenshotImportOpen && !matchReviewOpen && !$("new-game-dialog").open && settings.auto && state.turn === settings.solver && !state.outcome) {
       void analyzePosition(true);
     }
   }
 
   async function analyzePosition(autoPlay) {
-    if (!state || busy || activeSearch || stoppingSearch || state.outcome || !available() || screenshotImportOpen || $("new-game-dialog").open) return;
+    if (!state || busy || activeSearch || stoppingSearch || state.outcome || !available() || screenshotImportOpen || matchReviewOpen || $("new-game-dialog").open) return;
     autoPaused = false;
     statusOverride = "";
     selected = null;
@@ -671,7 +743,7 @@
         $("new-game-error").hidden = false;
         throw error;
       }
-    }, { onCommit: () => {
+    }, { archiveCurrent: true, onCommit: () => {
       Object.assign(settings, draft);
       resetPractice();
       gameConfigured = true;
@@ -766,7 +838,7 @@
           const success = await transition(async () => {
             try { return await api("/api/import", { fen }); }
             catch (error) { importError = error; throw error; }
-          }, { onCommit: () => {
+          }, { archiveCurrent: true, onCommit: () => {
             settings.solver = userSide === "white" ? "black" : "white";
             settings.flipped = userSide === "black";
             settings.strength = strength;
@@ -823,7 +895,7 @@
         $("import-error").hidden = false;
         throw error;
       }
-    }, { onCommit: () => { gameConfigured = true; resetPractice(); } });
+    }, { archiveCurrent: true, onCommit: () => { gameConfigured = true; resetPractice(); } });
     $("submit-import").disabled = false;
     if (success) { $("import-dialog").close(); $("import-text").value = ""; }
   });

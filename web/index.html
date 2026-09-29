@@ -9,9 +9,11 @@
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/workspace.css">
   <link rel="stylesheet" href="/screenshot.css">
+  <link rel="stylesheet" href="/review.css">
   <script src="/coach.js" defer></script>
   <script src="/screenshot-recognition.js" defer></script>
   <script src="/screenshot.js" defer></script>
+  <script src="/review.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -23,6 +25,11 @@
   <main>
     <div class="page-heading"><div><p class="eyebrow">A BETTER MOVE STARTS HERE</p><h1>Harrison analysis desk.</h1><p class="page-description">You make a move. Your engine finds the reply.</p></div><button id="new-game" class="button button-outline"><span aria-hidden="true">↻</span> New game</button></div>
     <div id="message" class="message" role="status" hidden></div>
+    <section id="match-finished" class="match-finished" aria-labelledby="match-finished-title" hidden>
+      <div><p class="eyebrow">THE NEXT LESSON</p><h2 id="match-finished-title">Match complete</h2><p id="match-finished-result"></p><p>Replay both sides, explore the plans, and learn from each move.</p></div>
+      <button id="match-finished-review" class="button button-primary">Review this match <span aria-hidden="true">→</span></button>
+    </section>
+    <div class="match-review-actions"><button id="review-match" class="text-button" disabled>Review match</button><button id="review-last-match" class="text-button" hidden>Review last match</button><span>Replay and lessons on a separate board.</span></div>
 
     <div class="workspace">
       <div class="play-workspace">

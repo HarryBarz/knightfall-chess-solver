@@ -2,6 +2,59 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## Post-match reviewer (2026-09-29)
+
+The new reviewer was exercised with native Stockfish 19 and headless Chrome on
+macOS. Commands:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+node scripts/review_smoke.mjs http://127.0.0.1:8881
+node scripts/browser_smoke.mjs http://127.0.0.1:8882
+node scripts/screenshot_smoke.mjs http://127.0.0.1:8882
+```
+
+The 14 new review tests cover mover-relative scores and mate ordering, legal
+annotated continuations, retained full history, imported roots, immutable input
+boards, cancellation/recovery, recaptures, piece maneuvers and passed pawns. Real
+Stockfish searches reviewed errors by both colours and terminal mate. A concrete
+Fool's Mate comparison verifies that after `e3`, the same queen check can be
+answered by `Ke2` or `g3`; this establishes legal replies, not a guaranteed result.
+Two new HTTP integration tests verify request validation, before/after history
+FENs, full-strength review and separation from the playing and live-note engines.
+
+The dedicated reviewer browser suite passed with a completed Fool's Mate game.
+It checks the persistent end-of-match offer, the retained match after new game
+and reload, initial-to-final replay, You/Solver identification, detailed plans and
+corrections, actual/projected/correction board previews, legal API FEN agreement,
+all five horizon choices, full-strength review independent of the playing profile,
+keyboard navigation, playback/pause, error retry, and late-result suppression
+after closing and reopening. Preview/navigation left the live board and saved
+workspace unchanged. Only delay/error injection used test responses; successful
+analyses used the actual server and Stockfish. Desktop, 390px and 320px captures
+were visually inspected, including scrolled explanations. Evidence is saved in
+`artifacts/match-review-*.png`. Existing browser and screenshot suites also passed.
+
+An initial review assertion incorrectly assumed that every nonterminal search
+returns the complete requested preview length. Native execution returned a
+shorter legal PV. The check now enforces legal, bounded previews, and the UI
+explicitly explains when the search supplies fewer turns. The horizon controls
+the maximum displayed continuation; it does not fabricate missing moves.
+
+The final combined run executed 61 tests: all new review checks passed, while
+the pre-existing one-second extra-practice fixture once returned an ordinary
+move instead of finding an eligible deliberate inaccuracy. The exact focused
+rerun below passed (1 test, 4.283 seconds):
+
+```sh
+PYTHONPATH=tests .venv/bin/python -m unittest test_solver.SolverAPITest.test_extra_practice_opportunity_real_engine_and_committed_budget -v
+```
+
+This fixture is sensitive to the timed engine search; the production feature
+intentionally skips unsuitable opportunities. No practice-selection behavior was
+changed for the reviewer. Earlier existing-suite execution also passed all 47
+tests, and the separate post-match suite passed before the combined run.
+
 ## Selected-strength suggestions (2026-09-29)
 
 Executed with native Stockfish and headless Chrome on macOS:
