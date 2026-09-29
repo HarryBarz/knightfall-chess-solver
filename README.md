@@ -83,6 +83,54 @@ Evaluations are bounded-search estimates from White's perspective, and the
 assessment accounts for which side moved. A screenshot/FEN import can only be
 reviewed from the imported position onward; earlier moves cannot be reconstructed.
 
+## After-match accuracy reports
+
+Each finished match automatically receives an **Accuracy estimate** for White
+and Black, with You/Solver labels, category totals, and a move-by-move breakdown.
+Opening **Review match** or **Review last match** also scores the recorded game;
+select a report move to jump to its lesson. In-progress games can be scored from
+the reviewer. Imported FENs and screenshots only include moves recorded after
+the import.
+
+Reports always use a separate full-strength Stockfish search, regardless of the
+playing difficulty or lesson teacher setting. Progress is shown while moves are
+scored. Partial results are marked provisional, unavailable moves are not counted
+as perfect, and failed work can be retried. Recent reports are saved in this
+browser and can resume without replaying the game.
+
+The categories use [Chess.com's published expected-points-loss thresholds](https://support.chess.com/en/articles/8572705-how-are-moves-classified-what-is-a-blunder-or-brilliant-etc):
+
+| Category | Expected points lost |
+| --- | --- |
+| Best | 0 |
+| Excellent | Greater than 0 and less than 0.02 |
+| Good | 0.02 to less than 0.05 |
+| Inaccuracy | 0.05 to less than 0.10 |
+| Mistake | 0.10 to less than 0.20 |
+| Blunder | 0.20 to 1.00 |
+
+At a shared boundary, this implementation assigns the category that begins at
+that threshold. For example, exactly 0.10 is a Mistake. Classification uses the
+unrounded loss. These are fractions of an expected game point, not pawn values:
+0.10 is ten percentage points of expected score.
+
+**The score is a local estimate, not Chess.com's CAPS2.** Chess.com's published
+model accounts for player rating; this app uses [Stockfish's native self-play
+win/draw/loss model](https://official-stockfish.github.io/docs/stockfish-wiki/Useful-data.html).
+Expected points are `(wins + draws / 2) / 1000`, from the mover's perspective.
+The loss is the nonnegative difference between the strongest searched choice
+and the played move, evaluated from the same position with its full history.
+Immediate terminal outcomes use the chess rules. Bounded engine scores and
+missing WDL results are excluded.
+
+Method `knightfall-ep-v1` converts each loss `L` to a local 0–100 estimate with
+`100 * (exp(-4 * L) - exp(-4)) / (1 - exp(-4))`, clamped to 0–100. Each side's
+score is the arithmetic mean of its scored moves. This transparent curve is our
+own mapping, not the unpublished CAPS2 calculation. Longer searches can change
+scores and labels; matching thresholds does not guarantee matching Chess.com
+results. Brilliant, Great, Book, and Miss require additional rules and are not
+inferred from these six thresholds.
+
 ## Analysis arrows
 
 Turn on **Analysis arrows** beneath the playing or review board, then choose
@@ -140,6 +188,7 @@ node scripts/browser_smoke.mjs
 node scripts/screenshot_smoke.mjs
 node scripts/review_smoke.mjs
 node scripts/arrows_smoke.mjs
+node scripts/accuracy_smoke.mjs
 ```
 
 The Python suite launches a temporary server and executes the real Stockfish engine. It covers legal moves, special moves, PGN/FEN round trips, draw history, checkmate/stalemate, both colors' mate scores, candidate lines, practice strength, forgiving mode, cancellation, recovery, and independent move reviews. Extra-inaccuracy checks cover candidate bounds, mate protection, budget/history validation and real-engine selection for both colors. Browser checks cover playing, written reviews, stale responses, extra-inaccuracy counter persistence and responsive layout. They require Node.js 22+, Google Chrome on macOS, and the app running at `http://127.0.0.1:8877`; pass a different base URL as the first argument if needed. On other platforms, set `CHROME_PATH` to Chrome's executable. See `VALIDATION.md` for the executed checks.
@@ -163,6 +212,8 @@ Package versions are pinned in `package-lock.json`. The build preserves the acco
 - `coach.py`: independent, bounded Stockfish reviews and board-grounded move notes.
 - `match_review.py`: independent post-match lessons, legal continuation steps, and corrections.
 - `arrows.py`: current-board patterns and independent, legal projected lines for both sides.
+- `accuracy.py`: full-strength WDL grading using the published expected-points categories and a documented local accuracy estimate.
+- `web/accuracy.js`, `web/accuracy.css`: automatic match reports, move breakdowns, progress, and cached results.
 - `web/arrows.js`, `web/arrows.css`: optional White/Black learning arrows on playing and replay boards.
 - `web/review.js`, `web/review.css`: replay board, lesson navigation, and variation previews.
 - `practice.py`: validated per-game opportunity budget and bounded extra-inaccuracy selection.

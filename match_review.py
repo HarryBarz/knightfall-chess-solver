@@ -189,7 +189,9 @@ def _verdict(after: chess.Board, played: dict, best: dict) -> dict:
         label = "Close alternative"
         detail = f"The score is close to {best['san']}, the leading searched move. This is not a clear mistake in this brief review."
     else:
-        label = "Inaccuracy" if loss < 100 else "Mistake" if loss < 250 else "Blunder"
+        # Named accuracy categories belong to the independent expected-points
+        # report; a centipawn gap alone does not use those thresholds.
+        label = "Compare this alternative"
         detail = f"Compared with {best['san']}, the played move scores about {loss / 100:.1f} pawns lower for {side}. This is an evaluation difference, not a count of pieces lost."
     return {"label": label, "detail": detail, "lossCp": loss}
 

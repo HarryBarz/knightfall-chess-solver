@@ -34,6 +34,7 @@ except ImportError as exc:
 from coach import CoachError, ExplainService
 from match_review import MatchReviewService
 from arrows import ArrowService
+from accuracy import AccuracyService
 from practice import PracticePlan
 
 
@@ -428,10 +429,12 @@ ENGINE = StockfishService()
 COACH = ExplainService(StockfishService.engine_path)
 REVIEW = MatchReviewService(StockfishService.engine_path)
 ARROWS = ArrowService(StockfishService())
+ACCURACY = AccuracyService(StockfishService.engine_path)
 atexit.register(ENGINE.close)
 atexit.register(COACH.close)
 atexit.register(REVIEW.close)
 atexit.register(ARROWS.close)
+atexit.register(ACCURACY.close)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -590,6 +593,15 @@ class Handler(BaseHTTPRequestHandler):
                 result = ARROWS.analyze(board, ident, strength, forgiving, lookahead)
             elif path == "/api/arrows/stop":
                 result = ARROWS.stop(request_id(data))
+            elif path == "/api/accuracy":
+                board = board_from_request(data)
+                if not board.move_stack:
+                    raise APIError("This position has no recorded moves to score.")
+                ident = request_id(data)
+                ply = bounded_number(data, "ply", len(board.move_stack), 1, len(board.move_stack), integer=True)
+                result = ACCURACY.review(board, ident, ply)
+            elif path == "/api/accuracy/stop":
+                result = ACCURACY.stop(request_id(data))
             else:
                 raise APIError("Unknown API endpoint.", 404)
             self._json(200, result)
@@ -635,6 +647,7 @@ def main():
         COACH.close()
         REVIEW.close()
         ARROWS.close()
+        ACCURACY.close()
 
 
 if __name__ == "__main__":

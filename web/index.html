@@ -11,11 +11,13 @@
   <link rel="stylesheet" href="/screenshot.css">
   <link rel="stylesheet" href="/review.css">
   <link rel="stylesheet" href="/arrows.css">
+  <link rel="stylesheet" href="/accuracy.css">
   <script src="/coach.js" defer></script>
   <script src="/screenshot-recognition.js" defer></script>
   <script src="/screenshot.js" defer></script>
   <script src="/review.js" defer></script>
   <script src="/arrows.js" defer></script>
+  <script src="/accuracy.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -31,6 +33,7 @@
       <div><p class="eyebrow">THE NEXT LESSON</p><h2 id="match-finished-title">Match complete</h2><p id="match-finished-result"></p><p>Replay both sides, explore the plans, and learn from each move.</p></div>
       <button id="match-finished-review" class="button button-primary">Review this match <span aria-hidden="true">→</span></button>
     </section>
+    <div id="accuracy-report-host" hidden></div>
     <div class="match-review-actions"><button id="review-match" class="text-button" disabled>Review match</button><button id="review-last-match" class="text-button" hidden>Review last match</button><span>Replay and lessons on a separate board.</span></div>
 
     <div class="workspace">

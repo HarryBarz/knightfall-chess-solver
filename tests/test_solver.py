@@ -693,6 +693,63 @@ class SolverAPITest(unittest.TestCase):
         self.assertTrue(stopped["cancelled"])
         self.assertEqual(stopped["requestId"], cancelled_id)
 
+    def test_accuracy_reports_full_strength_mover_relative_metrics(self):
+        moves = ["f2f3", "e7e5", "g2g4", "d8h4"]
+        position = self.position(moves)
+        payload = {"moves": moves, "requestId": str(uuid.uuid4()), "ply": 3,
+                   "strength": 10, "forgiving": True}
+        grade = self.post("/api/accuracy", payload)
+        self.assertTrue(grade["scored"], grade)
+        self.assertEqual(grade["methodVersion"], "knightfall-ep-v1")
+        self.assertEqual(grade["strength"], 100)
+        self.assertFalse(grade["forgiving"])
+        self.assertEqual(grade["moves"], moves)
+        self.assertEqual(grade["move"]["color"], "white")
+        self.assertEqual(grade["move"]["uci"], "g2g4")
+        self.assertEqual(grade["beforeFen"], position["history"][2]["beforeFen"])
+        self.assertEqual(grade["afterFen"], position["history"][2]["afterFen"])
+        self.assertEqual(grade["classification"], "Blunder")
+        self.assertGreaterEqual(grade["expectedPointsLoss"], 0.20)
+        self.assertGreaterEqual(grade["moveAccuracy"], 0)
+        self.assertLess(grade["moveAccuracy"], 100)
+        mate = self.post("/api/accuracy", {**payload, "requestId": str(uuid.uuid4()), "ply": 4})
+        self.assertEqual(mate["classification"], "Best")
+        self.assertEqual(mate["move"]["color"], "black")
+        self.assertEqual(mate["expectedPointsAfter"], 1)
+        self.assertEqual(mate["moveAccuracy"], 100)
+        self.assertEqual(self.position(moves), position)
+
+    def test_accuracy_validates_history_and_precancellation(self):
+        payload = {"moves": ["e2e4"], "ply": 1, "requestId": str(uuid.uuid4())}
+        for changes in ({"moves": []}, {"ply": 0}, {"ply": 2}, {"ply": True},
+                        {"moves": ["e2e5"]}, {"requestId": ""}):
+            with self.subTest(changes=changes):
+                status, body = self.request("/api/accuracy", {**payload, **changes})
+                self.assertEqual(status, 400, body)
+        self.post("/api/accuracy/stop", {"requestId": payload["requestId"]})
+        cancelled = self.post("/api/accuracy", payload)
+        self.assertTrue(cancelled["cancelled"])
+        self.assertFalse(cancelled["scored"])
+        self.assertIsNone(cancelled["moveAccuracy"])
+
+    def test_accuracy_does_not_cancel_playing_or_review_searches(self):
+        ident = str(uuid.uuid4())
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            playing = executor.submit(self.analyze, seconds=30, requestId=ident)
+            try:
+                time.sleep(0.15)
+                review = executor.submit(self.post, "/api/review", {
+                    "moves": ["e2e4", "e7e5"], "ply": 1, "lookahead": 3,
+                    "strength": 100, "requestId": ident})
+                grade = self.post("/api/accuracy", {"moves": ["e2e4"], "ply": 1, "requestId": ident})
+                self.assertTrue(grade["scored"], grade)
+                self.post("/api/accuracy/stop", {"requestId": ident})
+                self.assertFalse(review.result(timeout=10)["cancelled"])
+                self.assertFalse(playing.done())
+            finally:
+                self.post("/api/stop", {"requestId": ident})
+                self.assertTrue(playing.result(timeout=10)["cancelled"])
+
     def test_match_review_is_independent_of_playing_and_live_notes(self):
         ident = str(uuid.uuid4())
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:

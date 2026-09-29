@@ -2,6 +2,46 @@
 
 Date: 2026-09-27. Environment: macOS arm64, Python 3.9, Node.js 24.16.0, native official Stockfish 19 universal release, headless Google Chrome.
 
+## After-match accuracy estimates (2026-09-29)
+
+Executed with native Stockfish 19 and headless Chrome on macOS:
+
+```sh
+.venv/bin/python -m unittest discover -s tests -v
+node scripts/accuracy_smoke.mjs http://127.0.0.1:8882
+node scripts/browser_smoke.mjs http://127.0.0.1:8881
+node scripts/review_smoke.mjs http://127.0.0.1:8881
+node scripts/arrows_smoke.mjs http://127.0.0.1:8881
+```
+
+The complete Python suite passed **107 tests in 45.669 seconds**, including 18
+new accuracy tests and three HTTP integration checks. These execute threshold
+boundaries without rounding, both mover perspectives, the local curve's bounds,
+coherent native WDL provenance, rejection of bounded/missing scores, exact mate
+and draw outcomes, fivefold history, the 75-move rule, forced replies, immutable
+input, full-strength configuration, pre-cancellation, interrupted searches,
+latest-request handling, and separation from playing and lesson engines. The
+API stays at full strength even when the request includes reduced practice
+settings. Missing native scores stay unscored rather than becoming 100.
+
+All four browser suites passed. The new report suite completed a real Fool's
+Mate game and verified automatic reports for both players, category counts,
+arithmetic score means, provisional progress, cached reload without recomputing,
+move-to-lesson navigation and category badges, full-strength scoring independent
+of the lesson teacher, unfinished and retained match reports, error retry,
+concurrent playing analysis, and stale-result suppression after undo/import/new
+game. Successful grading uses the real server and Stockfish; only errors and
+response timing are injected. Desktop, 390px, and 320px report/review captures
+were visually inspected (`artifacts/accuracy-*.png`). An initial browser run
+caught a hidden report host; that integration issue was fixed before the passing
+run. JavaScript syntax and `git diff --check` passed.
+
+These checks establish the local method's behavior, not CAPS2 equivalence. The
+category ranges were checked against Chess.com's public documentation; native
+Stockfish WDL and the documented local score curve differ from Chess.com's
+rating-aware model and accuracy aggregation. No Chess.com score-matching claim
+or benchmark is made.
+
 ## Optional analysis arrows (2026-09-29)
 
 Executed with native Stockfish 19 and headless Chrome on macOS:

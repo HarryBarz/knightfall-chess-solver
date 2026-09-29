@@ -10,6 +10,7 @@
       <div><p class="eyebrow">THE GAME, EXPLAINED</p><h2 id="review-heading">Match review</h2><p id="review-match-description"></p></div>
       <button id="review-close" type="button" class="review-close" aria-label="Close match review" autofocus>×</button>
     </header>
+    <div id="review-accuracy-report-host" hidden></div>
     <div class="review-layout">
       <section class="review-replay" aria-label="Replay board and controls">
         <div class="review-board-heading"><span id="review-board-label">Starting position</span><button id="review-flip" type="button">Flip board</button></div>
@@ -36,6 +37,7 @@
         <div id="review-overview" class="review-overview"><p class="eyebrow">START AT THE BEGINNING</p><h3 id="review-overview-title">Every move, with a reason.</h3><p id="review-overview-text"></p><div class="review-overview-guide"><p><strong>Understand the solver.</strong> Follow its move, likely plan, and the next few turns it could be working toward.</p><p><strong>Learn from your moves.</strong> See what your move achieved, what it risked, and a useful correction when one is available.</p><p><strong>Explore the possibilities.</strong> Click any continuation step to preview its board, then return to the match.</p></div><button id="review-begin" type="button" class="button button-primary">Review the first move <span aria-hidden="true">→</span></button></div>
         <article id="review-content" hidden>
           <div class="review-move-heading"><span id="review-owner" class="review-owner"></span><span id="review-verdict" class="review-verdict"></span></div>
+          <p id="review-accuracy-detail" class="review-profile" hidden></p>
           <h3 id="review-title"></h3><p id="review-summary" class="review-summary"></p>
           <section class="review-detail"><h4>What the move changes</h4><ul id="review-reasons"></ul></section>
           <section class="review-detail review-plan-box"><h4>Likely plan</h4><p id="review-plan"></p></section>
@@ -66,6 +68,7 @@
   let boardKey = "";
   let contentKey = "";
   let historyController = null;
+  let accuracyRows = [];
 
   function el(tag, className, value) {
     const node = document.createElement(tag);
@@ -242,7 +245,13 @@
       if (selected) button.setAttribute("aria-current", "step");
       else button.removeAttribute("aria-current");
     }
-    if (note && ply) renderNote(note);
+    if (note && ply) {
+      renderNote(note);
+      const grade = accuracyRows.find((row) => row?.ply === ply && row.scored);
+      $("review-verdict").textContent = grade ? `${grade.classification} · accuracy` : note.verdict?.label || "Move reviewed";
+      $("review-accuracy-detail").hidden = !grade;
+      $("review-accuracy-detail").textContent = grade ? `Full-strength accuracy report: ${grade.expectedPointsLoss.toFixed(3)} expected points lost. Local estimate using Chess.com’s published category thresholds.` : "";
+    }
     for (const button of dialog.querySelectorAll("[data-review-line]")) {
       button.setAttribute("aria-pressed", String(Boolean(preview && button.dataset.reviewLine === preview.kind && Number(button.dataset.step) === preview.index)));
     }
@@ -410,6 +419,7 @@
       if (epoch !== generation || !dialog.open) return;
       if (result.initialFen !== snapshot.initialFen || JSON.stringify(result.moves) !== JSON.stringify(snapshot.moves)) throw new Error("The restored positions did not match this match.");
       snapshot.history = result.history;
+      window.dispatchEvent(new CustomEvent("knightfall:accuracy-review", { detail: { active: true, match: structuredClone(snapshot) } }));
       buildHistory();
       render();
     } catch {
@@ -431,6 +441,7 @@
     generation++;
     if (!dialog.open) opener = document.activeElement;
     snapshot = JSON.parse(JSON.stringify(detail));
+    accuracyRows = [];
     snapshot.history = Array.isArray(snapshot.history) ? snapshot.history : [];
     snapshot.solver = snapshot.solver === "white" ? "white" : "black";
     flipped = Boolean(snapshot.flipped);
@@ -448,6 +459,7 @@
       : "There are no recorded moves to replay yet. If you imported a position or screenshot, earlier moves are not included. Play from this position, then return to review your match.";
     buildHistory();
     if (!dialog.open) dialog.showModal();
+    window.dispatchEvent(new CustomEvent("knightfall:accuracy-review", { detail: { active: true, match: structuredClone(snapshot) } }));
     render();
     $("review-close").focus();
     void restoreHistory(generation);
@@ -461,6 +473,7 @@
     cancelWork();
     historyController?.abort();
     preview = null;
+    window.dispatchEvent(new CustomEvent("knightfall:accuracy-review", { detail: { active: false } }));
     window.dispatchEvent(new CustomEvent("knightfall:review-position", { detail: { active: false } }));
     window.dispatchEvent(new CustomEvent("knightfall:review-close"));
     if (opener?.isConnected && !opener.disabled) opener.focus();
@@ -498,4 +511,17 @@
     }
   });
   window.addEventListener("knightfall:review-open", (event) => open(event.detail));
+  window.addEventListener("knightfall:accuracy-select", (event) => {
+    const index = event.detail?.ply;
+    if (dialog.open && snapshot && Number.isInteger(index) && index >= 1 && index <= snapshot.moves.length) {
+      select(index);
+      dialog.querySelector(".review-layout").scrollIntoView({ block: "start", behavior: "smooth" });
+    }
+  });
+  window.addEventListener("knightfall:accuracy-results", (event) => {
+    const report = event.detail;
+    if (!dialog.open || !snapshot || !report || report.initialFen !== snapshot.initialFen || JSON.stringify(report.moves) !== JSON.stringify(snapshot.moves) || !Array.isArray(report.rows)) return;
+    accuracyRows = report.rows.filter((row) => row && row.move?.uci === snapshot.moves[row.ply - 1] && Number.isFinite(row.expectedPointsLoss));
+    render();
+  });
 })();
